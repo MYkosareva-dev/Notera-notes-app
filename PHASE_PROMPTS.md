@@ -151,7 +151,20 @@ and STOP per CLAUDE.md rule 16b.
 
 ## P3 — Authentication (branch `feat/auth`) — highest-weight phase
 
+Before pasting: replace the two [account emails] below with the real test-account
+emails from the Supabase dashboard (passwords are NOT given to the agent — you
+verify sign-in yourself in the browser).
+
 ```
+Decision from the Phase 1 gate, binding for this branch: adopt proxy.ts (the
+current Next convention) instead of middleware.ts — rename the root entry file
+accordingly and keep lib/supabase/middleware.ts's helper wired to it (rename
+that file too if cleaner). In this SAME branch update the four docs, per
+CLAUDE.md rule 18: CLAUDE.md rule 3, SPEC.md rule B3, SPEC.md Block A layout +
+Block F flow wording, and .claude/commands/review-auth.md item 8 — every
+middleware.ts mention becomes proxy.ts. The role is unchanged: cookie refresh +
+cheap early redirect, NEVER the gate.
+
 Read CLAUDE.md, SPEC.md (Blocks A, B/US1-US2, F), BUILD_PHASES.md, and docs/.
 
 We are starting Phase 3. Create branch feat/auth from main and build ONLY:
@@ -160,9 +173,9 @@ We are starting Phase 3. Create branch feat/auth from main and build ONLY:
   and states exactly per SPEC Block E, copy from lib/copy.ts.
 - Server Actions signIn and signOut in app/notes/actions.ts (or a shared
   actions file if cleaner) using supabase.auth.signInWithPassword / signOut.
-- middleware.ts: session refresh via lib/supabase/middleware.ts; redirect
-  unauthenticated /notes* requests to /sign-in and signed-in /sign-in visits
-  to /notes.
+- proxy.ts (per the gate decision above): session refresh via the
+  lib/supabase helper; redirect unauthenticated /notes* requests to /sign-in
+  and signed-in /sign-in visits to /notes.
 - app/notes/layout.tsx: the AUTHORITATIVE server-side guard — call
   supabase.auth.getUser(); on null, redirect("/sign-in"). This must exist even
   though middleware also redirects (CLAUDE.md rule 3).

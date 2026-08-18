@@ -32,7 +32,7 @@ Claude Code session** (Sprint 2 workflow habit).
 ## Phase 1 — Scaffold  (branch `feat/scaffold`)
 Build: Next.js App Router + TS strict (`noUnusedLocals`) + Tailwind; design tokens
 and carried-over Notera components (Header, EmptyState, ConfirmDialog, Toast,
-not-found pattern); `app/error.tsx`; `lib/copy.ts`; `lib/types.ts`
+InlineRename, not-found pattern); `app/error.tsx`; `lib/copy.ts`; `lib/types.ts`
 with `LIMITS`; root-anchored `.gitignore`; `.env.example`.
 No Supabase code yet.
 **Done when:** `npm run dev` renders a placeholder page at 1280 and 375 with zero
@@ -49,10 +49,18 @@ select from `notes` without error.
 **GATE.**
 
 ## Phase 3 — Authentication  (branch `feat/auth`)  ← highest-weight phase
+Carry-in from the Phase 1 gate: adopt `proxy.ts` (Next's current convention)
+instead of `middleware.ts`, and update the four doc mentions in this same
+branch (CLAUDE.md rule 3, SPEC.md B3 + Block A/F, review-auth item 8).
 Build: `/sign-in` page + `SignInForm`; `signIn`/`signOut` Server Actions;
-`middleware.ts` session refresh + redirects; protected `app/notes/layout.tsx`
+`proxy.ts` session refresh + redirects; protected `app/notes/layout.tsx`
 with the authoritative `getUser()` check; sign-out button in Header.
-**Done when:** SPEC US1 and US2 acceptance boxes pass manually.
+**Done when:** SPEC US1 and US2 acceptance boxes pass manually, PLUS the
+token-refresh probe (invisible to normal checks, since every US1/US2 step fits
+inside the default 1h token TTL): in the dashboard set JWT expiry to 60s, sign
+in, wait past the TTL, reload /notes with cache disabled — the document request
+must show Set-Cookie + the no-store headers and render without bouncing to
+/sign-in; then restore expiry to 3600.
 **GATE — strict:** `/review-auth` must be all-PASS before the PR. Fresh-session
 diff review required; note it in a PR comment.
 
@@ -83,6 +91,13 @@ optional tasks + their PRs); REFLECTION.md written by the owner from WORKLOG.md
 using REFLECTION_TEMPLATE.md; screenshots into `docs/screenshots/` (local app,
 Authentication tab, Table Editor with user_id, the two-account SQL query).
 Owner: fresh-clone test in a clean folder; full 4-step checklist there.
+Also in Phase 7: reword Block H check 5 to exclude vendor skill docs
+(.agents/skills/) and docs/; add a re-checkable probe "GET
+{SUPABASE_URL}/auth/v1/settings returns disable_signup: true" (public
+self-signup was found enabled at the Phase 2 gate and switched off in the
+dashboard); decide the four carried schema-amendment items from the Phase 2
+full-review (tagMax/notesPerUser DB fence, set_updated_at search_path,
+id-existence oracle, schema idempotency note).
 **Done when:** SPEC Block H — all 8 checks pass.
 **GATE → final merge → rehearse the review-call demo (dashboard walk-through).**
 
