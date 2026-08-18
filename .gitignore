@@ -1,0 +1,12 @@
+# dependencies / build
+/node_modules/
+/.next/
+
+# environment — never commit secrets
+/.env*.local
+
+# private working files
+/WORKLOG.md
+
+# OS / editor junk
+.DS_Store
