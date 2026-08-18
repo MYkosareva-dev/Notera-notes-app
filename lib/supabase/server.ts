@@ -26,18 +26,32 @@ export async function createClient() {
       getAll() {
         return cookieStore.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, _headers) {
+        // `_headers` is the no-store set (Cache-Control / Expires / Pragma) that
+        // must accompany a refreshed auth cookie so no cache can serve one user's
+        // session to another. Deliberately unused here: this runtime has no
+        // writable response headers, so forwarding them is the interceptor's job
+        // (lib/supabase/middleware.ts). Supabase's own server snippet names it
+        // `_headers` for the same reason.
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Server Components cannot write cookies, so a refresh that lands
-          // during render throws here. Swallowing it is only safe because the
-          // session-refresh helper (lib/supabase/middleware.ts) writes the
-          // refreshed cookie on the next request. This is NOT a general
-          // error-handling pattern — failures a user needs to know about are
-          // shown in the browser (CLAUDE.md rule 13).
+          // Server Components cannot write cookies, so a write that lands
+          // during render throws here. Swallowing it is safe for a token REFRESH
+          // only: the session-refresh helper will re-write the cookie on the next
+          // request, once Phase 3 wires the entry file.
+          //
+          // It is NOT safe as a general rule. auth.signOut() clears cookies
+          // through this same setAll, and nothing re-attempts a deletion — a
+          // swallowed clear would leave a valid access token in the browser while
+          // the user believes they are signed out. Server Actions CAN write
+          // cookies, so this catch does not fire on that path; Phase 3's signOut()
+          // must confirm the cookie is gone rather than trust this comment.
+          //
+          // Not a general error-handling pattern either: failures the user needs
+          // to know about are shown in the browser (CLAUDE.md rule 13).
         }
       },
     },
