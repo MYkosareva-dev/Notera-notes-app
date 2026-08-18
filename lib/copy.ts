@@ -4,7 +4,7 @@
 
 import { LIMITS } from "./types";
 
-const n = (value: number): string => value.toLocaleString("en-US");
+const formatNumber = (value: number): string => value.toLocaleString("en-US");
 
 export const copy = {
   app: {
@@ -41,12 +41,12 @@ export const copy = {
   // Cap and validation messages, SPEC Block F. Kept here from the start so no
   // number ever gets typed into a string later on.
   limits: {
-    titleTooLong: `The title is limited to ${n(LIMITS.titleMax)} characters.`,
-    contentTooLong: `The note is limited to ${n(LIMITS.contentMax)} characters.`,
-    tagTooLong: `Tags are limited to ${n(LIMITS.tagMax)} characters.`,
+    titleTooLong: `The title is limited to ${formatNumber(LIMITS.titleMax)} characters.`,
+    contentTooLong: `The note is limited to ${formatNumber(LIMITS.contentMax)} characters.`,
+    tagTooLong: `Tags are limited to ${formatNumber(LIMITS.tagMax)} characters.`,
     tagDuplicate: "This tag is already on the note.",
-    tooManyTags: `A note can have up to ${n(LIMITS.tagsPerNote)} tags.`,
-    tooManyNotes: `You've reached the limit of ${n(LIMITS.notesPerUser)} notes.`,
+    tooManyTags: `A note can have up to ${formatNumber(LIMITS.tagsPerNote)} tags.`,
+    tooManyNotes: `You've reached the limit of ${formatNumber(LIMITS.notesPerUser)} notes.`,
   },
 
   // Temporary strings for the Phase 1 scaffold. Each one disappears when the

@@ -28,7 +28,7 @@ export function NotesGridSkeleton() {
   return (
     <div role="status" aria-label={copy.common.loading}>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {Array.from({ length: CARD_SKELETON_COUNT }, (_unused, index) => (
+        {Array.from({ length: CARD_SKELETON_COUNT }, (_, index) => (
           <NoteCardSkeleton key={index} />
         ))}
       </div>
@@ -42,7 +42,7 @@ export function NoteEditorSkeleton() {
     <div role="status" aria-label={copy.common.loading}>
       <Bar className="h-8 w-3/4" />
       <div className="mt-6 space-y-3">
-        {Array.from({ length: EDITOR_LINE_COUNT }, (_unused, index) => (
+        {Array.from({ length: EDITOR_LINE_COUNT }, (_, index) => (
           <Bar
             key={index}
             className={index % 3 === 2 ? "h-3 w-4/6" : "h-3 w-full"}

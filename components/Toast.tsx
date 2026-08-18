@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
@@ -40,9 +48,21 @@ export function useToast(): ToastContextValue {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
   const lastId = useRef(0);
+  const timers = useRef<Map<number, number>>(new Map());
 
   const dismiss = useCallback((id: number) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id));
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timers.current.delete(id);
+    }
+    // Return the same array when the id is already gone, so a late timer does
+    // not commit a pointless re-render of every consumer.
+    setToasts((current) =>
+      current.some((toast) => toast.id === id)
+        ? current.filter((toast) => toast.id !== id)
+        : current,
+    );
   }, []);
 
   const showToast = useCallback(
@@ -50,10 +70,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       lastId.current += 1;
       const id = lastId.current;
       setToasts((current) => [...current, { id, message, variant }]);
-      window.setTimeout(() => dismiss(id), TOAST_DURATION_MS);
+      timers.current.set(
+        id,
+        window.setTimeout(() => dismiss(id), TOAST_DURATION_MS),
+      );
     },
     [dismiss],
   );
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      pending.forEach((timer) => window.clearTimeout(timer));
+      pending.clear();
+    };
+  }, []);
 
   const value = useMemo<ToastContextValue>(
     () => ({ toasts, showToast, dismiss }),
@@ -75,14 +106,13 @@ export function Toaster() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          role="status"
           className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-card border bg-surface px-4 py-3 text-sm shadow-card ${
             toast.variant === "danger"
               ? "border-danger text-danger"
               : "border-border text-text"
           }`}
         >
-          <span className="min-w-0 flex-1 break-words">{toast.message}</span>
+          <span className="min-w-0 flex-1 wrap-break-word">{toast.message}</span>
           <button
             type="button"
             onClick={() => dismiss(toast.id)}

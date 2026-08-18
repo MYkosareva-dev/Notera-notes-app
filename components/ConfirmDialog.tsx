@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useRef } from "react";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -18,6 +18,11 @@ interface ConfirmDialogProps {
  * Destructive-action confirmation. Presentational only: every string and both
  * handlers are supplied by the caller, so this file has no idea what it is
  * confirming.
+ *
+ * Built on the native <dialog> element with showModal(), which is what actually
+ * makes it modal — focus is trapped inside, the rest of the page goes inert, and
+ * focus returns to the trigger on close. Escape arrives as the `cancel` event.
+ * A hand-rolled overlay div would claim aria-modal without delivering any of it.
  */
 export function ConfirmDialog({
   open,
@@ -29,40 +34,40 @@ export function ConfirmDialog({
   onCancel,
   busy = false,
 }: ConfirmDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
 
   useEffect(() => {
-    if (!open) {
+    const dialog = dialogRef.current;
+    if (dialog === null) {
       return;
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onCancel();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onCancel]);
-
-  if (!open) {
-    return null;
-  }
+    if (open && !dialog.open) {
+      dialog.showModal();
+    } else if (!open && dialog.open) {
+      dialog.close();
+    }
+  }, [open]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div
-        className="absolute inset-0 bg-text/40"
-        onClick={onCancel}
-        aria-hidden="true"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descriptionId : undefined}
-        className="relative w-full max-w-sm rounded-card border border-border bg-surface p-5 shadow-card"
-      >
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
+      onCancel={(event) => {
+        // Keep `open` the single source of truth: let the parent close it.
+        event.preventDefault();
+        onCancel();
+      }}
+      onClick={(event) => {
+        if (event.target === dialogRef.current) {
+          onCancel();
+        }
+      }}
+      className="fixed inset-0 m-0 flex h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-text/40"
+    >
+      <div className="w-full max-w-sm rounded-card border border-border bg-surface p-5 shadow-card">
         <p id={titleId} className="text-base font-medium">
           {title}
         </p>
@@ -84,12 +89,12 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-lg bg-danger px-4 py-2 text-sm font-medium text-surface transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
+            className="rounded-lg bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
           >
             {confirmLabel}
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

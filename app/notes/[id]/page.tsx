@@ -1,13 +1,13 @@
 import Link from "next/link";
 
-import { NoteEditorSkeleton } from "@/components/Skeletons";
 import { copy } from "@/lib/copy";
 
 /**
- * Note editor. Phase 1 renders the narrow column, the back link and the SPEC
- * loading skeleton — the route param is deliberately unread: fetching a note
- * (through the `lib/notes.ts` DAL), the local-state editor with its 300 ms
- * debounce and the delete flow all belong to Phase 4.
+ * Note editor. Phase 1 renders the narrow column and the back link only — the
+ * route param is deliberately unread: fetching a note (through the
+ * `lib/notes.ts` DAL), the local-state editor with its 300 ms debounce and the
+ * delete flow all belong to Phase 4, which also mounts `NoteEditorSkeleton` as
+ * this route's real loading fallback.
  */
 export default function NotePage() {
   return (
@@ -18,9 +18,6 @@ export default function NotePage() {
       >
         {copy.common.allNotes}
       </Link>
-      <div className="mt-6">
-        <NoteEditorSkeleton />
-      </div>
       <p className="mt-6 text-sm text-text-muted">
         {copy.placeholder.comingSoon}
       </p>

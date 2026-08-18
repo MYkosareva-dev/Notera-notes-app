@@ -11,5 +11,6 @@ import type { ReactNode } from "react";
  * and never middleware.
  */
 export default function NotesLayout({ children }: { children: ReactNode }) {
-  return <div className="min-h-dvh">{children}</div>;
+  // No wrapper element: `body` already sets min-h-dvh (app/layout.tsx).
+  return <>{children}</>;
 }
