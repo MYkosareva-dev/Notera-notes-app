@@ -32,7 +32,7 @@ Claude Code session** (Sprint 2 workflow habit).
 ## Phase 1 — Scaffold  (branch `feat/scaffold`)
 Build: Next.js App Router + TS strict (`noUnusedLocals`) + Tailwind; design tokens
 and carried-over Notera components (Header, EmptyState, ConfirmDialog, Toast,
-InlineRename, not-found pattern); `app/error.tsx`; `lib/copy.ts`; `lib/types.ts`
+not-found pattern); `app/error.tsx`; `lib/copy.ts`; `lib/types.ts`
 with `LIMITS`; root-anchored `.gitignore`; `.env.example`.
 No Supabase code yet.
 **Done when:** `npm run dev` renders a placeholder page at 1280 and 375 with zero
