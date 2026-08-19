@@ -43,6 +43,9 @@ import type { ActionResult, NoteFailure, NotePatch, NoteView } from "@/lib/types
  *   Rule B8 ends in a user-driven affordance, so continuing to fire a save on every
  *   keystroke against a network that is still down would be both unspecced and
  *   invisible — the notice would sit there while attempts piled up behind it.
+ *   Decided at the Phase 4 gate and recorded in SPEC B8: there is deliberately NO
+ *   auto-resume when the network returns. Adding an `online` listener here would be a
+ *   behaviour change, not a fix — it is a post-sprint candidate.
  * - Pending changes are flushed on unmount (G-12), so navigating away one keystroke
  *   after typing still saves.
  *
