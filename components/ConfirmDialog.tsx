@@ -15,6 +15,27 @@ interface ConfirmDialogProps {
 }
 
 /**
+ * DISPLAY IS PART OF THE OPEN/CLOSED CONTRACT — never give this element an
+ * unconditional display utility.
+ *
+ * A `<dialog>` is hidden by the UA rule `dialog:not([open]) { display: none }`, and
+ * ANY author `display` declaration overrides it, because author styles beat the UA
+ * stylesheet regardless of specificity. A bare `flex` in this list therefore painted
+ * the dialog while it was CLOSED — not as a modal (`showModal()` had never run, so
+ * there was no backdrop and no inertness) but as a `fixed inset-0` box lying across
+ * the page. Measured in Chrome on a freshly created note: `open` false,
+ * `display: flex`, 1264×805, `activeElement` DIALOG. The dialog covered the editor,
+ * swallowed the click meant for the title input, and Cancel looked broken because
+ * flipping `open` changed nothing visible.
+ *
+ * Both states are therefore spelled out here rather than half-inherited from the UA:
+ * `hidden` when closed, `open:flex` when open — the variant's `[open]` selector wins
+ * on specificity. The two halves must always move together.
+ */
+const DIALOG_CLASS =
+  "hidden open:flex fixed inset-0 m-0 h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-text/40";
+
+/**
  * Destructive-action confirmation. Presentational only: every string and both
  * handlers are supplied by the caller, so this file has no idea what it is
  * confirming.
@@ -65,7 +86,7 @@ export function ConfirmDialog({
           onCancel();
         }
       }}
-      className="fixed inset-0 m-0 flex h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-text/40"
+      className={DIALOG_CLASS}
     >
       <div className="w-full max-w-sm rounded-card border border-border bg-surface p-5 shadow-card">
         <p id={titleId} className="text-base font-medium">
