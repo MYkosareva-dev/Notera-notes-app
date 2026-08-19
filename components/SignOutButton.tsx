@@ -4,31 +4,25 @@ import { useTransition } from "react";
 import type { FormEvent } from "react";
 
 import { signOut } from "@/app/notes/actions";
-import { useToast } from "@/components/Toast";
 import { copy } from "@/lib/copy";
 
 /**
  * Sign-out control for the Header (SPEC Block E — /notes).
  *
- * A form submit, never a link: a GET sign-out can be triggered by any third-party
- * page or a prefetch. A client component because the failure case is a toast
- * (SPEC Block E actions table); the sign-out itself happens entirely in the
- * `signOut` Server Action.
+ * A submit, never a link: invoking a Server Action is always a POST, so nothing a
+ * third party can trigger — an `<img>` or a prefetch — can sign the user out.
+ * A client component only for the pending state; the sign-out itself happens
+ * entirely in the `signOut` Server Action, which always redirects to /sign-in and
+ * therefore returns nothing for this component to handle.
  */
 export function SignOutButton() {
-  const { showToast } = useToast();
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     startTransition(async () => {
-      const result = await signOut();
-      // Reached on failure only: success redirects to /sign-in, so the call
-      // navigates instead of resolving with a value — hence the optional chain.
-      if (result?.error) {
-        showToast(result.error, "danger");
-      }
+      await signOut();
     });
   }
 

@@ -91,8 +91,15 @@ export async function createClient() {
 > libraries against a mock Auth server: with an access-token TTL below the 90s
 > margin it fails on the second reload, every time.
 >
-> Fix in this project: token refresh happens in ONE context — the proxy, which owns
-> a writable response — and every client built by `lib/supabase/server.ts` declines
+> Do not reach for `autoRefreshToken: false` — it is already set. `@supabase/ssr`'s
+> `createServerClient` passes it (`createServerClient.js:34`), and it only disables the
+> background ticker: `__loadSession` still refreshes on demand whenever the session is
+> inside the 90s margin (`GoTrueClient.js:2526-2554`). The config knob that looks like
+> the answer is a no-op for this path, which is why the intervention has to be at the
+> fetch layer.
+>
+> Fix in this project: token refresh happens in ONE context on the server — the proxy,
+> which owns a writable response — and every client built by `lib/supabase/server.ts` declines
 > the `grant_type=refresh_token` call with a non-retryable 4xx, so it validates the
 > token it was handed and never rotates it. (Decline with a *response*, not a thrown
 > error: a thrown fetch failure is retryable and auth-js re-attempts with backoff for
@@ -257,17 +264,27 @@ export const config = {
      * - favicon.ico (favicon file)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
   ]
 }
 ```
 
-> **ANNOTATION — the exported name:** newer Supabase docs call this `proxy` because
-> Next.js is renaming `middleware.ts` to `proxy.ts`. This project's rule 3 names
-> **`middleware.ts`** explicitly. Keep the file name and export that our installed
-> Next.js version actually reads — check the installed version before renaming
-> anything, and if it does move, fix rule 3 and `README.md` in the same change
-> (rule 18).
+> **ANNOTATION — the exported name: SETTLED, this project uses `proxy.ts`.** Next.js
+> renamed `middleware.ts` to `proxy.ts`, and the installed Next 16.3.1 reads it:
+> `PROXY_FILENAME = 'proxy'` in `next/dist/lib/constants.js`, and the build accepts a
+> named `proxy` export or a default export (`next/dist/build/analysis/get-page-static-info.js`),
+> with `config.matcher` still honoured. The rename was taken at the Phase 1 gate and
+> applied in Phase 3 together with every doc mention — CLAUDE.md rule 3, SPEC.md B3 +
+> Block A/F + Block H check 6, and `.claude/commands/review-auth.md` item 8 — per rule 18.
+> Do not re-introduce `middleware.ts`; if a future Next version moves the slot again,
+> update the same list in the same change.
+
+> **ANNOTATION — two escapes lost in transit.** The matcher above originally arrived
+> from Context7 with a single backslash before the extension dot (`.*\.` became
+> `.*.`), and `favicon.ico` has an unescaped dot in the upstream snippet too. In a TS
+> string a single backslash collapses, so the pattern matches ANY character there and
+> silently skips paths like `/notes/axsvg`. Restored above. Our own `proxy.ts` writes
+> those dots as `[.]` instead, which cannot be mis-escaped by a later edit.
 
 > **ANNOTATION — this is NOT our access gate.** The docs present this redirect as route
 > protection. In this project **middleware is never trusted as the gate** (rule 3): it
@@ -313,7 +330,7 @@ export const config = {
      * - favicon.ico (favicon file)
      * Feel free to modify this pattern to include more paths.
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 }
 ```

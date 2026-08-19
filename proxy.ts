@@ -24,6 +24,11 @@ export const config = {
   // document and RSC requests alike, and skipping assets keeps the Auth
   // round-trip off requests that carry no session decision.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // The literal dot is written `[.]`, not an escape. A backslash escape has to
+    // survive TWO layers here — the TS string literal and then the regex — and a
+    // single backslash silently collapses to "." (any character), which is how
+    // paths like /notes/axsvg were excluded from this interceptor by accident.
+    // A character class cannot be mis-escaped, so it stays correct under edits.
+    "/((?!_next/static|_next/image|favicon[.]ico|.*[.](?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

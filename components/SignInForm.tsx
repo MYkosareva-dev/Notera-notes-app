@@ -17,6 +17,11 @@ import { isValidEmail } from "@/lib/validation";
  * component reports "signed out" as a silent false negative — and access decisions
  * belong on the server anyway (CLAUDE.md rule 2). Nothing is written to web
  * storage; the session is a cookie set by the action (rule 6).
+ *
+ * Only the submit button disables while the action runs (SPEC Block E). The fields
+ * stay enabled on purpose: disabling a focused input drops focus to the body and
+ * silently swallows anything typed during the round-trip, and the disabled submit
+ * button already prevents a double submit.
  */
 export function SignInForm() {
   const [email, setEmail] = useState("");
@@ -34,6 +39,13 @@ export function SignInForm() {
   // Block F copy. The same two rules run again inside the Server Action, which is
   // where they actually bind — this pass exists to block the round-trip and show
   // the message inline.
+  // Any edit clears the inline error, so a corrected field stops being announced
+  // as invalid and the stale message goes away instead of waiting for the next
+  // submit. Both fields share it: the message belongs to the form, not a field.
+  function clearError() {
+    setError(null);
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -72,19 +84,23 @@ export function SignInForm() {
         <label htmlFor={emailId} className="text-sm font-medium">
           {copy.auth.emailLabel}
         </label>
+        {/* No `name`: the values are read from state in handleSubmit, so a name
+            would only add a native GET submit that puts the credentials in the URL
+            when JS has not hydrated. autoComplete is what password managers use. */}
         <input
           id={emailId}
-          name="email"
           type="email"
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          disabled={isPending}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            clearError();
+          }}
           aria-invalid={error !== null}
           aria-describedby={error === null ? undefined : errorId}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft disabled:opacity-60"
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
         />
       </div>
 
@@ -95,27 +111,27 @@ export function SignInForm() {
         <div className="relative">
           <input
             id={passwordId}
-            name="password"
             type={passwordVisible ? "text" : "password"}
             autoComplete="current-password"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            disabled={isPending}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              clearError();
+            }}
             aria-invalid={error !== null}
             aria-describedby={error === null ? undefined : errorId}
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-3 pr-10 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft disabled:opacity-60"
+            className="w-full rounded-lg border border-border bg-surface py-2 pl-3 pr-10 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
           />
           {/* type="button": inside a form a bare <button> submits, which would
               fire a sign-in attempt on every reveal. */}
           <button
             type="button"
             onClick={() => setPasswordVisible((visible) => !visible)}
-            disabled={isPending}
             aria-label={
               passwordVisible ? copy.auth.hidePassword : copy.auth.showPassword
             }
             aria-pressed={passwordVisible}
-            className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+            className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {passwordVisible ? (
               <EyeOff aria-hidden="true" className="size-4" />

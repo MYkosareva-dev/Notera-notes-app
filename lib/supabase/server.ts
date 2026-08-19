@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
@@ -54,7 +56,10 @@ const fetchWithoutTokenRotation: typeof fetch = (input, init) => {
       JSON.stringify({
         error: "invalid_grant",
         error_code: "refresh_not_permitted_in_this_context",
-        msg: "Token refresh happens in lib/supabase/proxy.ts, the only server context that can put Set-Cookie on the response.",
+        // Opaque on purpose: this becomes AuthError.message, and an internal file
+        // path should not be one stray render away from a user's screen. The
+        // error_code above is the part anything downstream should read.
+        msg: "Refresh not permitted in this context.",
       }),
       { status: 400, headers: { "content-type": "application/json" } },
     ),

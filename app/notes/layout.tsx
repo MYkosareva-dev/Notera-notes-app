@@ -6,16 +6,22 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Workspace layout — fence 2 of SPEC rule B3 / CLAUDE.md rule 3.
  *
- * Nothing under /notes renders until the server has a verified user. The check is
- * `getUser()`, which revalidates the token against the Auth server; `getSession()`
- * reads the cookie without validating it and is prohibited for access decisions
- * (rule 2).
+ * This layout ISSUES THE REDIRECT for a request without a verified user. The check
+ * is `getUser()`, which revalidates the token against the Auth server;
+ * `getSession()` reads the cookie without validating it and is prohibited for
+ * access decisions (rule 2).
  *
- * This guard exists even though proxy.ts also redirects, because the interceptor
- * is not trusted as the gate — it can be bypassed and it is not what stops data
- * from moving. Conversely, this layout is not the last word either: layouts do not
- * re-run on client-side navigation, so Phase 4's `lib/notes.ts` calls getUser() on
- * every operation and stays the authoritative fence.
+ * What it does NOT do is suppress the render. Measured on Next 16.3.1: a
+ * `redirect()` here sets the status and the Location, but the sibling page
+ * component still renders into the response's RSC payload. So this file cannot be
+ * what keeps note rows off the wire — that is fence 1, `lib/notes.ts` (Phase 4),
+ * which calls getUser() on every operation and refuses without a user. Layouts also
+ * do not re-run on client-side navigation, which is the second reason fence 1 is
+ * the authoritative one.
+ *
+ * This guard still earns its place: it is the server-side redirect for every route
+ * in the segment, present whether or not proxy.ts runs — and the interceptor is
+ * never trusted as the gate.
  *
  * `getUser()` is called here directly rather than through a cached wrapper: Next
  * already dedupes identical requests within one render pass, and wrapping it would

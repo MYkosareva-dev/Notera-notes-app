@@ -7,13 +7,17 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
  * Session-refresh helper for the request interceptor (`proxy.ts` at the root —
  * Next 16's rename of `middleware.ts`).
  *
- * THE ONLY PLACE IN THE APP THAT MAY REFRESH A TOKEN. Refreshing rotates the
+ * THE ONLY PLACE ON THE SERVER THAT MAY REFRESH A TOKEN. Refreshing rotates the
  * refresh token, so the new pair MUST reach the browser or the session dies on the
  * next request; this is the one server context that owns a writable response and
  * can guarantee that. Every client from lib/supabase/server.ts therefore declines
  * the rotation call — see fetchWithoutTokenRotation there for the failure it
  * prevents. Consequently this client keeps the platform `fetch`: do not pass a
- * fetch wrapper here, or nothing refreshes anywhere.
+ * fetch wrapper here, or nothing refreshes on the server at all.
+ *
+ * (A browser client refreshes too — createBrowserClient defaults
+ * autoRefreshToken to true — and that is fine, because a browser CAN persist the
+ * rotated cookies. lib/supabase/client.ts has no caller; see its docblock.)
  *
  * `updateSession` is not exported by @supabase/ssr — it is the name the docs give
  * to this helper, which holds the body of the interceptor so the entry file stays
@@ -79,11 +83,21 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  if (!user && isWorkspacePath(pathname)) {
+  // Documents and RSC navigations only. NextResponse.redirect answers 307, which
+  // preserves the method and the body, so redirecting a POST re-sends it to the
+  // target route — and every Server Action is a POST to the page it was called
+  // from. A redirected action never returns its result to the client, so Phase 4's
+  // autosave could not show SPEC G-1's "Your session expired." banner: the browser
+  // would simply navigate away and the user would lose the text they had typed.
+  // Non-GET traffic therefore falls through to be answered where it belongs — the
+  // DAL refuses without a user and the action returns a structured error.
+  const isNavigation = request.method === "GET";
+
+  if (isNavigation && !user && isWorkspacePath(pathname)) {
     return redirectTo(SIGN_IN_PATH, request, supabaseResponse, refreshHeaders);
   }
 
-  if (user && pathname === SIGN_IN_PATH) {
+  if (isNavigation && user && pathname === SIGN_IN_PATH) {
     return redirectTo(WORKSPACE_PATH, request, supabaseResponse, refreshHeaders);
   }
 

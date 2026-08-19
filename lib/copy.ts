@@ -41,7 +41,9 @@ export const copy = {
   },
 
   errors: {
-    // SPEC Block E: the generic failure message, shown by app/error.tsx.
+    // SPEC Block E: the generic failure message. Shown by app/error.tsx, and
+    // returned by the signIn action for any failure that is neither bad
+    // credentials nor the rate limit.
     generic: "Something went wrong. Try again.",
   },
 
@@ -71,8 +73,9 @@ export const copy = {
     tooManyNotes: `You've reached the limit of ${formatNumber(LIMITS.notesPerUser)} notes.`,
   },
 
-  // Temporary strings for the Phase 1 scaffold. Each one disappears when the
-  // real screen lands (sign-in in Phase 3, the editor in Phase 4).
+  // Temporary string for the Phase 1 scaffold. The sign-in screen landed in
+  // Phase 3 and no longer uses it; the last caller is the note editor route,
+  // which replaces it in Phase 4.
   placeholder: {
     comingSoon: "This screen arrives in a later build phase.",
   },

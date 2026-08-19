@@ -6,6 +6,8 @@ the pull request, merges, and only then starts the next phase — in a **fresh
 Claude Code session** (Sprint 2 workflow habit).
 
 ## The gate ritual (same at the end of every phase)
+0. Agent: `npm run typecheck && npm run build` — both clean before the commit. The
+   build is not optional: a mistyped `server-only` import is silently inert without it.
 1. Agent: commits, prints a summary of changed files, and **stops**.
 2. Owner runs, in this order:
    - `/review-auth` — the project's own auth-mistake scan (in `.claude/commands/`)
