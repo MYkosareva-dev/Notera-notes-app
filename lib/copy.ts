@@ -26,6 +26,10 @@ export const copy = {
     emailLabel: "Email",
     passwordLabel: "Password",
     submit: "Sign in",
+    // aria-labels for the show/hide control on the password field. The button has
+    // no text of its own, so these are its accessible name.
+    showPassword: "Show password",
+    hidePassword: "Hide password",
     submitPending: "Signing in…",
     signOut: "Sign out",
     invalidEmail: "Enter a valid email address.",

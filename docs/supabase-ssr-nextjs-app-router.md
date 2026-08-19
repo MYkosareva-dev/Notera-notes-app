@@ -78,6 +78,27 @@ export async function createClient() {
 > pattern to copy elsewhere; failures that matter to the user must surface in the
 > browser (CLAUDE.md rule 13, `app/error.tsx`).
 
+> **ANNOTATION — CORRECTION, measured at the Phase 3 gate.** "The next request will
+> refresh it" is not enough, and this snippet as printed has a real failure mode. A
+> refresh **rotates** the refresh token: the old one is spent on the Auth server the
+> moment the call returns. auth-js considers a session expired `EXPIRY_MARGIN_MS`
+> (90s) before its real expiry, so a Server Component's `getUser()` inside that
+> window refreshes too — and its cookie write lands in exactly this `catch`. The
+> rotated pair is discarded while remaining spent, so the browser keeps a dead
+> refresh token; the next request outside the project's refresh-token reuse interval
+> (10s by default) gets `refresh_token_already_used`, auth-js deletes the session,
+> and the user is bounced to the sign-in page. Reproduced with the installed
+> libraries against a mock Auth server: with an access-token TTL below the 90s
+> margin it fails on the second reload, every time.
+>
+> Fix in this project: token refresh happens in ONE context — the proxy, which owns
+> a writable response — and every client built by `lib/supabase/server.ts` declines
+> the `grant_type=refresh_token` call with a non-retryable 4xx, so it validates the
+> token it was handed and never rotates it. (Decline with a *response*, not a thrown
+> error: a thrown fetch failure is retryable and auth-js re-attempts with backoff for
+> up to 30s.) With the default 1h TTL the buggy version looks fine, which is why the
+> project keeps the 60s-TTL probe in BUILD_PHASES Phase 3.
+
 ---
 
 ## Initialize Browser Client

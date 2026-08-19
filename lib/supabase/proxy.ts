@@ -7,6 +7,14 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
  * Session-refresh helper for the request interceptor (`proxy.ts` at the root —
  * Next 16's rename of `middleware.ts`).
  *
+ * THE ONLY PLACE IN THE APP THAT MAY REFRESH A TOKEN. Refreshing rotates the
+ * refresh token, so the new pair MUST reach the browser or the session dies on the
+ * next request; this is the one server context that owns a writable response and
+ * can guarantee that. Every client from lib/supabase/server.ts therefore declines
+ * the rotation call — see fetchWithoutTokenRotation there for the failure it
+ * prevents. Consequently this client keeps the platform `fetch`: do not pass a
+ * fetch wrapper here, or nothing refreshes anywhere.
+ *
  * `updateSession` is not exported by @supabase/ssr — it is the name the docs give
  * to this helper, which holds the body of the interceptor so the entry file stays
  * a two-liner (docs/supabase-ssr-nextjs-app-router.md).

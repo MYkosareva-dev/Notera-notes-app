@@ -2,7 +2,7 @@
 
 import { useId, useState, useTransition } from "react";
 import type { FormEvent } from "react";
-import { LoaderCircle } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 
 import { signIn } from "@/app/sign-in/actions";
 import { copy } from "@/lib/copy";
@@ -22,6 +22,8 @@ export function SignInForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Default hidden: the field is a password field until the user asks otherwise.
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const errorId = useId();
@@ -58,6 +60,7 @@ export function SignInForm() {
       if (result?.error) {
         // US1 step 2: the form stays filled except the password.
         setPassword("");
+        setPasswordVisible(false);
         setError(result.error);
       }
     });
@@ -89,18 +92,38 @@ export function SignInForm() {
         <label htmlFor={passwordId} className="text-sm font-medium">
           {copy.auth.passwordLabel}
         </label>
-        <input
-          id={passwordId}
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          disabled={isPending}
-          aria-invalid={error !== null}
-          aria-describedby={error === null ? undefined : errorId}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft disabled:opacity-60"
-        />
+        <div className="relative">
+          <input
+            id={passwordId}
+            name="password"
+            type={passwordVisible ? "text" : "password"}
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            disabled={isPending}
+            aria-invalid={error !== null}
+            aria-describedby={error === null ? undefined : errorId}
+            className="w-full rounded-lg border border-border bg-surface py-2 pl-3 pr-10 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft disabled:opacity-60"
+          />
+          {/* type="button": inside a form a bare <button> submits, which would
+              fire a sign-in attempt on every reveal. */}
+          <button
+            type="button"
+            onClick={() => setPasswordVisible((visible) => !visible)}
+            disabled={isPending}
+            aria-label={
+              passwordVisible ? copy.auth.hidePassword : copy.auth.showPassword
+            }
+            aria-pressed={passwordVisible}
+            className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+          >
+            {passwordVisible ? (
+              <EyeOff aria-hidden="true" className="size-4" />
+            ) : (
+              <Eye aria-hidden="true" className="size-4" />
+            )}
+          </button>
+        </div>
       </div>
 
       <button

@@ -270,7 +270,7 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 
 ### Screen: `/sign-in`
 - Layout: centered card (max-w-sm) on `--color-bg`; app name "Notera Notes" above the card.
-- Fields: email (`type=email`, autocomplete `username`), password (`type=password`, autocomplete `current-password`), submit **Sign in** (full-width, accent).
+- Fields: email (`type=email`, autocomplete `username`), password (`type=password`, autocomplete `current-password`) with a show/hide toggle — an icon-only `type="button"` (lucide `Eye` / `EyeOff`) inside the field's right edge that switches the input between `password` and `text`, default hidden, `aria-label` from `lib/copy.ts` — and submit **Sign in** (full-width, accent).
 - States: **Loading** — button shows spinner + disabled while the action runs; **Empty** — n/a (a form is its own empty state; recorded decision); **Error** — inline text under the form, exact copy: "Email or password is incorrect." for bad credentials, "Something went wrong. Try again." for any other failure.
 - Actions: submit → Server Action `signIn` → success `redirect("/notes")` / failure shows the inline error, password field cleared.
 
@@ -330,6 +330,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 ### Auth flows
 **Sign-in:** `/sign-in` form → Server Action `signIn(formData)` → `createServerClient` → `auth.signInWithPassword({email, password})` → on error return `{ error: copy.auth.badCredentials }` → on success `redirect("/notes")`. Cookies are set by the `@supabase/ssr` client.
 **Session refresh:** `proxy.ts` runs on every request, calls the `lib/supabase/proxy.ts` helper to refresh the auth cookie, and redirects `/notes*` → `/sign-in` when `getUser()` returns null (and `/sign-in` → `/notes` when it doesn't). A redirect built there copies the refreshed cookies and no-store headers onto the new response, or the refresh is lost.
+**Refresh happens in exactly one place.** A refresh rotates the refresh token, so the new pair must reach the browser; only the proxy owns a writable response. Every client from `lib/supabase/server.ts` therefore declines the rotation call and only validates the token it was given — a rotation performed where cookies cannot be written spends the browser's refresh token and signs the user out on the next request (found by the Phase 3 token-refresh probe).
 **Guard:** three fences per rule B3 — DAL (authoritative), `app/notes/layout.tsx` (render guard), `proxy.ts` (cookie refresh + early redirect, never trusted as the gate).
 **Sign-out:** header button → Server Action `signOut()` → `auth.signOut()` → `redirect("/sign-in")`.
 **Registration / password reset:** none — accounts are created in the Supabase dashboard (Block A Decision).
