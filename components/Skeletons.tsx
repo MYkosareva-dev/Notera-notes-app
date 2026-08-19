@@ -17,9 +17,12 @@ export function NoteCardSkeleton() {
         <Bar className="h-3 w-full" />
         <Bar className="h-3 w-5/6" />
       </div>
-      {/* No tag chips: NoteCard renders no tags until Phase 6, and a skeleton that
-          promises a row the loaded card does not have makes every list load end in a
-          visible jump. The chips come back with the tags. */}
+      {/* Still no tag chip row, now for a different reason than in Phase 4: NoteCard
+          does render chips, but only for a note that HAS tags, and tags are optional.
+          A placeholder row here would promise one on every card and leave the ones
+          without tags to jump when the real list arrives. The same reasoning is why
+          app/notes/loading.tsx reserves no space for the TagFilter row: an account
+          with no tags gets no row at all. */}
       <Bar className="mt-6 h-3 w-20" />
     </div>
   );

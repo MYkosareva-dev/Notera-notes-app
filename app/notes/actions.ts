@@ -80,6 +80,14 @@ export async function saveNote(id: string, patch: NotePatch): Promise<ActionResu
   if (typeof patch?.content === "string") {
     changes.content = patch.content;
   }
+  // An array of strings, checked element by element rather than cast: this is a POST
+  // body, so `string[]` is a claim the payload makes, not a fact. What the tags MEAN
+  // (trimmed, capped, unique) is the DAL's rule — this only establishes the shape,
+  // because a non-array here would reach Postgres as a malformed value instead of a
+  // refusal the editor can act on.
+  if (Array.isArray(patch?.tags) && patch.tags.every((tag) => typeof tag === "string")) {
+    changes.tags = patch.tags;
+  }
 
   try {
     await notes.updateNote(id, changes);

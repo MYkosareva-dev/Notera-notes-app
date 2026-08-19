@@ -68,6 +68,10 @@ export const copy = {
     empty: {
       title: "No notes yet.",
       description: "Create your first note to get started.",
+      // SPEC Block E: the /notes empty state when a tag filter matches nothing.
+      // No description and no CTA beside it on purpose — the way out is the All
+      // chip in TagFilter, which is directly above this card.
+      filtered: "No notes with this tag.",
     },
     // SPEC Block E: the /notes error card, paired with common.tryAgain.
     loadError: "Couldn't load your notes.",
@@ -96,6 +100,25 @@ export const copy = {
       retryNow: "Retry now",
       sessionExpired: "Your session expired.",
       signIn: SIGN_IN_LABEL,
+    },
+
+    // Tags (SPEC US5). The chip row on a card is decoration, so it needs a name
+    // only where it is interactive: the editor's row and the filter's row.
+    //
+    // `remove` is a FUNCTION rather than a bare string because the accessible name
+    // of an icon-only × has to say which chip it removes — ten identically named
+    // "Remove tag" buttons in a row are unusable by keyboard or by screen reader.
+    // Building it here rather than concatenating at the call site is what keeps the
+    // whole user-visible string in this file (rule 10).
+    tags: {
+      label: "Tags",
+      addLabel: "Add a tag",
+      addPlaceholder: "Add a tag…",
+      remove: (tag: string): string => `Remove tag ${tag}`,
+      filterLabel: "Filter by tag",
+      // The chip that clears the filter. Not "All notes" — that string is the
+      // editor's back link (common.allNotes) and means something else.
+      all: "All",
     },
 
     // The per-card "⋮" menu (SPEC Block E). `label` is the icon-only trigger's

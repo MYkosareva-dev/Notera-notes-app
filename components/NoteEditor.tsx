@@ -6,6 +6,7 @@ import { AlertTriangle, Check, Trash2 } from "lucide-react";
 
 import { deleteNote, saveNote } from "@/app/notes/actions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TagEditor } from "@/components/TagEditor";
 import { useToast } from "@/components/Toast";
 import { useNoteFailureNotice } from "@/components/useNoteFailureNotice";
 import { callAction } from "@/lib/callAction";
@@ -26,6 +27,12 @@ import type { ActionResult, NoteFailure, NotePatch, NoteView } from "@/lib/types
  *
  * The consequences of that separation are the rest of the file:
  *
+ * - Tags ride the SAME pipeline, which is all "tags save through the same debounced
+ *   pipeline" means: `TagEditor` is controlled by the `tags` state below, a committed
+ *   or removed chip updates `draft` and calls `scheduleSave` exactly as a keystroke
+ *   does, and the patch that goes out carries whichever of the three fields changed.
+ *   No second action, no immediate write on Enter — two chips added inside one debounce
+ *   window are one save.
  * - `draft` (a ref, always current) is what the user has typed; `saved` (a ref) is
  *   what the server has confirmed. A save sends the difference and only advances
  *   `saved` when the action says `ok` — SPEC G-10: the "Saved" indicator is never a
@@ -94,6 +101,19 @@ function clearTimer(timer: { current: number | null }) {
 interface Draft {
   title: string;
   content: string;
+  tags: string[];
+}
+
+/**
+ * Order-sensitive array equality — a reorder IS a change, because the stored order is
+ * the order the chips are drawn in.
+ *
+ * Element-by-element rather than a JSON or join comparison: `["a,b"]` and `["a", "b"]`
+ * are different tag sets that join to the same string, and this predicate decides
+ * whether a save happens at all.
+ */
+function sameTags(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index]);
 }
 
 /** The fields that differ, or null when the server is already up to date. */
@@ -105,6 +125,9 @@ function diff(draft: Draft, saved: Draft): NotePatch | null {
   if (draft.content !== saved.content) {
     patch.content = draft.content;
   }
+  if (!sameTags(draft.tags, saved.tags)) {
+    patch.tags = draft.tags;
+  }
   return Object.keys(patch).length === 0 ? null : patch;
 }
 
@@ -115,6 +138,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
+  const [tags, setTags] = useState<string[]>(note.tags);
   /**
    * "saved" appears only after a confirmed round-trip (G-10). "saving" covers typed
    * but not yet sent, in flight, and waiting on a retry — all of which are real
@@ -126,8 +150,16 @@ export function NoteEditor({ note }: { note: NoteView }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isDeleting, startDeleting] = useTransition();
 
-  const draft = useRef<Draft>({ title: note.title, content: note.content });
-  const saved = useRef<Draft>({ title: note.title, content: note.content });
+  const draft = useRef<Draft>({
+    title: note.title,
+    content: note.content,
+    tags: note.tags,
+  });
+  const saved = useRef<Draft>({
+    title: note.title,
+    content: note.content,
+    tags: note.tags,
+  });
 
   const debounceTimer = useRef<number | null>(null);
   const maxWaitTimer = useRef<number | null>(null);
@@ -427,6 +459,21 @@ export function NoteEditor({ note }: { note: NoteView }) {
     scheduleSave();
   }
 
+  /**
+   * A committed or removed chip. No cap check here: `TagEditor` owns the Block F rules
+   * and hands over an array that already satisfies them, and `lib/notes.ts` re-checks
+   * the same rules on arrival because the action is a public POST. A third copy in the
+   * middle would be the one that drifts.
+   *
+   * The array is stored as given rather than copied: `TagEditor` builds a new one on
+   * every change, so there is nothing shared to mutate later.
+   */
+  function handleTagsChange(next: string[]) {
+    setTags(next);
+    draft.current = { ...draft.current, tags: next };
+    scheduleSave();
+  }
+
   function handleDelete() {
     // Stop the autosave machinery first: a pending debounce firing after the row is
     // gone would answer with G-13's "no longer exists" notice for a note the user
@@ -531,6 +578,11 @@ export function NoteEditor({ note }: { note: NoteView }) {
         />
 
         <div className="mx-5 border-t border-border sm:mx-7" />
+
+        {/* SPEC Block E's order inside the sheet: title, hairline, tags row, content.
+            One hairline only — the tags sit in the body half, with the text they
+            describe, rather than being boxed off as a third zone. */}
+        <TagEditor tags={tags} onChange={handleTagsChange} />
 
         <textarea
           value={content}

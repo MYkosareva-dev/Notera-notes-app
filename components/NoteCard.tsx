@@ -14,8 +14,12 @@ import type { NoteView } from "@/lib/types";
  * there is no clock-skew hydration mismatch to reconcile (SPEC G-28 — every
  * timestamp comes from Postgres `now()`, never from the visitor's clock).
  *
- * Tag chips are the one part of the Block E card spec deliberately absent: tags are
- * Phase 6, and this phase ships no tag UI. The rows already carry them.
+ * The tag chips are STATIC TEXT, not links to the filter. Two reasons, and the first
+ * one decides it: a link inside this card would have to sit above the card-wide
+ * overlay the way the "⋮" menu does, turning every chip into a second competing
+ * target on a surface whose whole point is that clicking it opens the note. And SPEC
+ * Block E lists chips as card CONTENT — the filter is `TagFilter`, one row above the
+ * grid, which is where the same tags are already clickable.
  *
  * THE LINK IS NOT THE WRAPPER. It is a transparent overlay covering the card, with the
  * "⋮" menu sitting above it. That is what keeps the menu working: interactive content
@@ -119,6 +123,29 @@ export function NoteCard({ note }: { note: NoteView }) {
         <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-text-muted wrap-break-word whitespace-pre-line">
           {note.content}
         </p>
+      ) : null}
+
+      {/* Deliberately NOT positioned and carrying no z-index. The card-wide link is a
+          transparent overlay, so unpositioned content shows through it perfectly well —
+          while a `relative` chip row would paint above the link and swallow the clicks
+          on it, making the one part of the card that looks most tappable the one part
+          that does nothing. The chips wrap rather than clip: ten is the hard cap
+          (`LIMITS.tagsPerNote`) and a clipped row of half-height chips reads as a
+          rendering bug, where three short rows just read as a well-tagged note. */}
+      {note.tags.length > 0 ? (
+        <ul
+          aria-label={copy.notes.tags.label}
+          className="mt-3 flex flex-wrap gap-1.5"
+        >
+          {note.tags.map((tag) => (
+            <li
+              key={tag}
+              className="max-w-full truncate rounded-full bg-accent-soft px-2 py-0.5 text-[0.6875rem] font-medium text-accent"
+            >
+              {tag}
+            </li>
+          ))}
+        </ul>
       ) : null}
       {/* `mt-auto` rather than a fixed margin: grid items stretch to the tallest
           card in the row, so the timestamps line up along the bottom edge instead
