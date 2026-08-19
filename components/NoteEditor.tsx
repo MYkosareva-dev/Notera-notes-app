@@ -88,16 +88,28 @@ const CONTENT_LIMIT_TOAST_KEY = "content-limit";
  * `rejected` is the case tags introduced. The other two are about the request not
  * getting through; this one is the server REFUSING the payload — `updateNote` re-checks
  * the Block F tag rules because a Server Action is a public POST, and it throws
- * `invalid` for a tag array it will not store. Before this existed, `invalid` raised a
- * one-shot "Something went wrong." and left saving ARMED, so every subsequent keystroke
- * re-derived the same rejected patch and re-sent it — one POST and one server-side
- * error per debounce window, for as long as the note stayed open, with the title and
- * content typed alongside it refused in the same breath (the patch is refused whole).
+ * `invalid` for a tag array it will not store.
+ *
+ * WHAT ACTUALLY TRIGGERS IT, corrected at the Phase 6 gate after the owner's repro:
+ * ONLY a patch that carries `tags`. `diff` above is per-field, so on a note holding an
+ * unstorable tag, typing in the title or the body sends `{title}` / `{content}` and the
+ * bad tag never reaches validation — the note saves normally. That is the better
+ * behaviour and it is not an accident of the design; it is the per-field patch doing
+ * its job. The first draft of this comment claimed "touch anything and it was
+ * unsaveable", which was wrong.
+ *
+ * The loop is real all the same, and the mechanism is the second half: `saved.current`
+ * advances ONLY on `ok` (see `attemptSave`). So the moment one tags-bearing patch is
+ * refused, `draft.tags` and `saved.tags` stay different forever, `sameTags` keeps
+ * returning false, and EVERY later patch — including a pure title or body edit — carries
+ * the tags again and is refused again. One refusal is what arms it; after that it really
+ * is one POST and one server-side error per debounce window, with the text typed
+ * alongside refused in the same breath, because a patch is refused whole.
  *
  * Reachable without a forged request: `LIMITS.tagMax` has no database counterpart, so a
  * note seeded through the SQL Editor (SPEC Block C ships a seed block; G-18 treats
- * direct inserts as a real path) can hold a tag `isValidTag` rejects. Open that note,
- * touch anything, and it was unsaveable forever.
+ * direct inserts as a real path) can hold a tag `isValidTag` rejects. Add or remove any
+ * chip on that note and the refusal arms; from there the note was unsaveable forever.
  */
 type SuspendedReason = "retriesSpent" | "sessionExpired" | "rejected";
 
