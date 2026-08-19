@@ -72,6 +72,15 @@ export default async function NotesPage({
     // The two `getUser()` calls inside still collapse to one Auth request — Next's
     // dedupe caches the promise, not the settled response, so running them at the same
     // time does not defeat it.
+    //
+    // WHAT THIS COSTS, recorded because it is a behaviour change and not only a
+    // speed-up: `Promise.all` rejects as soon as EITHER call does, so a `listTags()`
+    // failure now takes the whole screen to "Couldn't load your notes." even when the
+    // list itself came back fine. Before Phase 6 only the list query could produce that
+    // card. Accepted: the filter is part of this screen, not an ornament on it, and a
+    // grid rendered beside a silently missing sidebar would be a filtered-looking view
+    // with no way to tell what it is filtered by. One failure, one error card, one
+    // **Try again** that retries both.
     const [rows, inUse] = await Promise.all([
       listNotes(activeTag ?? undefined),
       listTags(),

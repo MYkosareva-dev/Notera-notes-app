@@ -42,9 +42,14 @@ const NOTE_COLUMNS = "id, title, content, tags, created_at, updated_at";
 
 /**
  * C0 controls, which `trim()` leaves in place (it strips whitespace, and U+0000 is not
- * whitespace). No tag the app writes can contain one — `isValidTag` requires the tag to
- * equal its trimmed form but says nothing about controls, so this is the read path's
- * own guard rather than a restatement of a write rule. See `listNotes`.
+ * whitespace). No tag the app writes SHOULD contain one — but nothing stops it:
+ * `isValidTag` requires the tag to equal its trimmed form and says nothing about
+ * controls, so a pasted U+0001 is storable, and its own chip then filters to an empty
+ * list here. That asymmetry is the accepted design, not an oversight — this is the read
+ * path's own guard rather than a restatement of a write rule, and extending
+ * `isValidTag` would be a behaviour change to the write path for a case no keyboard
+ * produces. (U+0000 is the exception that needs no rule: Postgres `text` cannot hold
+ * one, so that tag fails its save instead of reaching storage.) See `listNotes`.
  */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 

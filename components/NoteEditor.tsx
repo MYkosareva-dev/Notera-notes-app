@@ -106,10 +106,20 @@ const CONTENT_LIMIT_TOAST_KEY = "content-limit";
  * is one POST and one server-side error per debounce window, with the text typed
  * alongside refused in the same breath, because a patch is refused whole.
  *
- * Reachable without a forged request: `LIMITS.tagMax` has no database counterpart, so a
- * note seeded through the SQL Editor (SPEC Block C ships a seed block; G-18 treats
- * direct inserts as a real path) can hold a tag `isValidTag` rejects. Add or remove any
- * chip on that note and the refusal arms; from there the note was unsaveable forever.
+ * Reachable without a forged request, by TWO routes, both of them stored data the DAL
+ * will not take back. A note seeded through the SQL Editor (SPEC Block C ships a seed
+ * block; G-18 treats direct inserts as a real path) can hold either:
+ *
+ * 1. A tag `isValidTag` rejects — `LIMITS.tagMax` has no database counterpart, so a
+ *    200-character tag is insertable and the DAL is the only thing that stops it.
+ * 2. DUPLICATE tags — `{client,client}`, or `{Client,client}`, which `updateNote`
+ *    refuses under the case-insensitive rule. The Block C CHECK bounds the array's
+ *    LENGTH and nothing else, so neither pair is stopped on the way in. `TagEditor`
+ *    renders `dedupeTags(tags)` but sends the raw array, deliberately: deduping on the
+ *    way out would silently rewrite stored data the user never asked it to touch.
+ *
+ * Either way, add or remove any chip on that note and the refusal arms; from there the
+ * note was unsaveable forever.
  */
 type SuspendedReason = "retriesSpent" | "sessionExpired" | "rejected";
 
