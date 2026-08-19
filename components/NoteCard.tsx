@@ -3,7 +3,9 @@ import Link from "next/link";
 import { NoteCardMenu } from "@/components/NoteCardMenu";
 import { copy } from "@/lib/copy";
 import { notePath } from "@/lib/routes";
+import { TAG_CHIP } from "@/lib/tagChip";
 import type { NoteView } from "@/lib/types";
+import { dedupeTags } from "@/lib/validation";
 
 /**
  * One card in the `/notes` grid (SPEC Block E): title or "Untitled", a two-line
@@ -14,8 +16,12 @@ import type { NoteView } from "@/lib/types";
  * there is no clock-skew hydration mismatch to reconcile (SPEC G-28 — every
  * timestamp comes from Postgres `now()`, never from the visitor's clock).
  *
- * Tag chips are the one part of the Block E card spec deliberately absent: tags are
- * Phase 6, and this phase ships no tag UI. The rows already carry them.
+ * The tag chips are STATIC TEXT, not links to the filter. Two reasons, and the first
+ * one decides it: a link inside this card would have to sit above the card-wide
+ * overlay the way the "⋮" menu does, turning every chip into a second competing
+ * target on a surface whose whole point is that clicking it opens the note. And SPEC
+ * Block E lists chips as card CONTENT — the filter is `TagFilter`, one row above the
+ * grid, which is where the same tags are already clickable.
  *
  * THE LINK IS NOT THE WRAPPER. It is a transparent overlay covering the card, with the
  * "⋮" menu sitting above it. That is what keeps the menu working: interactive content
@@ -71,6 +77,10 @@ function relativeFrom(isoDate: string): string {
 export function NoteCard({ note }: { note: NoteView }) {
   const hasTitle = note.title.trim().length > 0;
   const name = hasTitle ? note.title : copy.notes.untitled;
+  // Exact duplicates are unwriteable through this app but reachable via a direct SQL
+  // insert (SPEC G-18), and `key={tag}` would then log a React duplicate-key warning —
+  // failing Block H check 4 for a reason unrelated to this component.
+  const tags = dedupeTags(note.tags);
 
   return (
     <div className="group relative flex min-w-0 flex-col rounded-card border border-border bg-surface p-5 shadow-card transition-[box-shadow,border-color] duration-200 hover:border-text/15 hover:shadow-card-hover">
@@ -119,6 +129,29 @@ export function NoteCard({ note }: { note: NoteView }) {
         <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-text-muted wrap-break-word whitespace-pre-line">
           {note.content}
         </p>
+      ) : null}
+
+      {/* Deliberately NOT positioned and carrying no z-index. The card-wide link is a
+          transparent overlay, so unpositioned content shows through it perfectly well —
+          while a `relative` chip row would paint above the link and swallow the clicks
+          on it, making the one part of the card that looks most tappable the one part
+          that does nothing. The chips wrap rather than clip: ten is the hard cap
+          (`LIMITS.tagsPerNote`) and a clipped row of half-height chips reads as a
+          rendering bug, where three short rows just read as a well-tagged note. */}
+      {tags.length > 0 ? (
+        <ul
+          aria-label={copy.notes.tags.label}
+          className="mt-3 flex flex-wrap gap-1.5"
+        >
+          {tags.map((tag) => (
+            // Smaller than the editor's chip on purpose — a card is a dense preview —
+            // so the size stays local while the shape and tint come from TAG_CHIP.
+            // `title` because that shared class truncates.
+            <li key={tag} title={tag} className={`${TAG_CHIP} px-2 py-0.5 text-[0.6875rem]`}>
+              {tag}
+            </li>
+          ))}
+        </ul>
       ) : null}
       {/* `mt-auto` rather than a fixed margin: grid items stretch to the tallest
           card in the row, so the timestamps line up along the bottom edge instead

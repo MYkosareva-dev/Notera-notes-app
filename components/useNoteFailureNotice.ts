@@ -61,6 +61,25 @@ export function useNoteFailureNotice() {
     [showToast],
   );
 
+  /**
+   * SPEC B8, the refused-patch case: persistent, with the same **Retry now** as the
+   * retryable one. The action matters more here than it looks — the user's way out is
+   * to change what they typed (remove the offending chip), and saving stays suspended
+   * until something asks for it, so without a button the fix would sit on screen
+   * unsaved. Retry now is what turns a corrected note back into a saved one.
+   */
+  const showRejected = useCallback(
+    (onRetry: () => void) => {
+      showToast(copy.notes.save.rejected, {
+        variant: "danger",
+        duration: "persistent",
+        key: NOTE_NOTICE_KEY,
+        action: { label: copy.notes.save.retryNow, onClick: onRetry },
+      });
+    },
+    [showToast],
+  );
+
   /** SPEC B8, during the ladder: one notice for all four attempts. */
   const showRetrying = useCallback(() => {
     showToast(copy.notes.save.retrying, { key: NOTE_NOTICE_KEY });
@@ -79,7 +98,23 @@ export function useNoteFailureNotice() {
   const clear = useCallback(() => dismissKey(NOTE_NOTICE_KEY), [dismissKey]);
 
   return useMemo(
-    () => ({ showSessionExpired, showRetryable, showRetrying, showGone, showGeneric, clear }),
-    [showSessionExpired, showRetryable, showRetrying, showGone, showGeneric, clear],
+    () => ({
+      showSessionExpired,
+      showRetryable,
+      showRejected,
+      showRetrying,
+      showGone,
+      showGeneric,
+      clear,
+    }),
+    [
+      showSessionExpired,
+      showRetryable,
+      showRejected,
+      showRetrying,
+      showGone,
+      showGeneric,
+      clear,
+    ],
   );
 }

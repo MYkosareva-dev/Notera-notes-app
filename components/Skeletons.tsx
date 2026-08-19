@@ -17,19 +17,35 @@ export function NoteCardSkeleton() {
         <Bar className="h-3 w-full" />
         <Bar className="h-3 w-5/6" />
       </div>
-      {/* No tag chips: NoteCard renders no tags until Phase 6, and a skeleton that
-          promises a row the loaded card does not have makes every list load end in a
-          visible jump. The chips come back with the tags. */}
+      {/* Still no tag chip row, now for a different reason than in Phase 4: NoteCard
+          does render chips, but only for a note that HAS tags, and tags are optional.
+          A placeholder row here would promise one on every card and leave the ones
+          without tags to jump when the real list arrives. The same reasoning is why
+          app/notes/loading.tsx reserves no space for the TagFilter: an account with no
+          tags gets none at all. Worth restating now that the filter is a COLUMN at
+          md+ — the handover moves the grid sideways for a tagged account, not just
+          down, and that is the accepted cost of not promising a sidebar to an account
+          that will not get one. `loading.tsx` runs before any query, so there is no
+          third option where it could know. */}
       <Bar className="mt-6 h-3 w-20" />
     </div>
   );
 }
 
-/** Loading state for the notes list (SPEC Block E: 1 column at 375, 3 at 1280). */
+/**
+ * Loading state for the notes list.
+ *
+ * The column counts MUST track app/notes/page.tsx exactly — 1 / 2 at `md` / 3 at `xl`.
+ * They are `xl` and not `lg` because the loaded grid shares its row with `TagFilter`'s
+ * sidebar and is measured against the width that leaves (SPEC Block E). This skeleton
+ * kept `lg:grid-cols-3` when the page moved to `xl`, so between 1024 and 1279 px three
+ * placeholder columns handed over to two real ones — the exact jump the note below is
+ * about. Caught at the Phase 6 full-review gate.
+ */
 export function NotesGridSkeleton() {
   return (
     <div role="status" aria-label={copy.common.loading}>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: CARD_SKELETON_COUNT }, (_, index) => (
           <NoteCardSkeleton key={index} />
         ))}

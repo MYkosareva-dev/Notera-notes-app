@@ -6,6 +6,7 @@ import { AlertTriangle, Check, Trash2 } from "lucide-react";
 
 import { deleteNote, saveNote } from "@/app/notes/actions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TagEditor } from "@/components/TagEditor";
 import { useToast } from "@/components/Toast";
 import { useNoteFailureNotice } from "@/components/useNoteFailureNotice";
 import { callAction } from "@/lib/callAction";
@@ -26,6 +27,12 @@ import type { ActionResult, NoteFailure, NotePatch, NoteView } from "@/lib/types
  *
  * The consequences of that separation are the rest of the file:
  *
+ * - Tags ride the SAME pipeline, which is all "tags save through the same debounced
+ *   pipeline" means: `TagEditor` is controlled by the `tags` state below, a committed
+ *   or removed chip updates `draft` and calls `scheduleSave` exactly as a keystroke
+ *   does, and the patch that goes out carries whichever of the three fields changed.
+ *   No second action, no immediate write on Enter — two chips added inside one debounce
+ *   window are one save.
  * - `draft` (a ref, always current) is what the user has typed; `saved` (a ref) is
  *   what the server has confirmed. A save sends the difference and only advances
  *   `saved` when the action says `ok` — SPEC G-10: the "Saved" indicator is never a
@@ -75,8 +82,46 @@ const RETRY_BACKOFF_MS = [1_000, 2_000, 4_000] as const;
 const TITLE_LIMIT_TOAST_KEY = "title-limit";
 const CONTENT_LIMIT_TOAST_KEY = "content-limit";
 
-/** Why saving stopped. Both cases are user-driven from here on (rule B8, G-1). */
-type SuspendedReason = "retriesSpent" | "sessionExpired";
+/**
+ * Why saving stopped. All three are user-driven from here on (rule B8, G-1).
+ *
+ * `rejected` is the case tags introduced. The other two are about the request not
+ * getting through; this one is the server REFUSING the payload — `updateNote` re-checks
+ * the Block F tag rules because a Server Action is a public POST, and it throws
+ * `invalid` for a tag array it will not store.
+ *
+ * WHAT ACTUALLY TRIGGERS IT, corrected at the Phase 6 gate after the owner's repro:
+ * ONLY a patch that carries `tags`. `diff` above is per-field, so on a note holding an
+ * unstorable tag, typing in the title or the body sends `{title}` / `{content}` and the
+ * bad tag never reaches validation — the note saves normally. That is the better
+ * behaviour and it is not an accident of the design; it is the per-field patch doing
+ * its job. The first draft of this comment claimed "touch anything and it was
+ * unsaveable", which was wrong.
+ *
+ * The loop is real all the same, and the mechanism is the second half: `saved.current`
+ * advances ONLY on `ok` (see `attemptSave`). So the moment one tags-bearing patch is
+ * refused, `draft.tags` and `saved.tags` stay different forever, `sameTags` keeps
+ * returning false, and EVERY later patch — including a pure title or body edit — carries
+ * the tags again and is refused again. One refusal is what arms it; after that it really
+ * is one POST and one server-side error per debounce window, with the text typed
+ * alongside refused in the same breath, because a patch is refused whole.
+ *
+ * Reachable without a forged request, by TWO routes, both of them stored data the DAL
+ * will not take back. A note seeded through the SQL Editor (SPEC Block C ships a seed
+ * block; G-18 treats direct inserts as a real path) can hold either:
+ *
+ * 1. A tag `isValidTag` rejects — `LIMITS.tagMax` has no database counterpart, so a
+ *    200-character tag is insertable and the DAL is the only thing that stops it.
+ * 2. DUPLICATE tags — `{client,client}`, or `{Client,client}`, which `updateNote`
+ *    refuses under the case-insensitive rule. The Block C CHECK bounds the array's
+ *    LENGTH and nothing else, so neither pair is stopped on the way in. `TagEditor`
+ *    renders `dedupeTags(tags)` but sends the raw array, deliberately: deduping on the
+ *    way out would silently rewrite stored data the user never asked it to touch.
+ *
+ * Either way, add or remove any chip on that note and the refusal arms; from there the
+ * note was unsaveable forever.
+ */
+type SuspendedReason = "retriesSpent" | "sessionExpired" | "rejected";
 
 /**
  * Module scope, not a closure: it touches nothing but its argument, and defining it per
@@ -94,6 +139,33 @@ function clearTimer(timer: { current: number | null }) {
 interface Draft {
   title: string;
   content: string;
+  /**
+   * READONLY, and the compiler is the point.
+   *
+   * `sent = { ...draft.current }` is a shallow copy, so the moment `Draft` gained a
+   * reference-typed field `saved.current.tags` and `draft.current.tags` became the
+   * same array after every successful save (and at mount, where both are `note.tags`).
+   * A single in-place `push`/`splice` anywhere would then mutate BOTH, `sameTags`
+   * would return true, `diff` would return null, and the edit would never be
+   * saved — with the indicator still reading "Saved". That is the worst failure this
+   * editor can have, and nothing else in the file would notice it.
+   *
+   * `readonly` makes that unwriteable rather than merely unwritten. `diff` below hands
+   * out a fresh array, so a patch on the wire can never alias either ref either.
+   */
+  tags: readonly string[];
+}
+
+/**
+ * Order-sensitive array equality — a reorder IS a change, because the stored order is
+ * the order the chips are drawn in.
+ *
+ * Element-by-element rather than a JSON or join comparison: `["a,b"]` and `["a", "b"]`
+ * are different tag sets that join to the same string, and this predicate decides
+ * whether a save happens at all.
+ */
+function sameTags(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index]);
 }
 
 /** The fields that differ, or null when the server is already up to date. */
@@ -105,6 +177,12 @@ function diff(draft: Draft, saved: Draft): NotePatch | null {
   if (draft.content !== saved.content) {
     patch.content = draft.content;
   }
+  if (!sameTags(draft.tags, saved.tags)) {
+    // A COPY, not the ref: `NotePatch.tags` is mutable `string[]` (it crosses the wire
+    // to a Server Action), and handing out the draft's own array would give the patch
+    // a live view of editor state.
+    patch.tags = [...draft.tags];
+  }
   return Object.keys(patch).length === 0 ? null : patch;
 }
 
@@ -115,6 +193,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
+  const [tags, setTags] = useState<string[]>(note.tags);
   /**
    * "saved" appears only after a confirmed round-trip (G-10). "saving" covers typed
    * but not yet sent, in flight, and waiting on a retry — all of which are real
@@ -126,8 +205,16 @@ export function NoteEditor({ note }: { note: NoteView }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isDeleting, startDeleting] = useTransition();
 
-  const draft = useRef<Draft>({ title: note.title, content: note.content });
-  const saved = useRef<Draft>({ title: note.title, content: note.content });
+  const draft = useRef<Draft>({
+    title: note.title,
+    content: note.content,
+    tags: note.tags,
+  });
+  const saved = useRef<Draft>({
+    title: note.title,
+    content: note.content,
+    tags: note.tags,
+  });
 
   const debounceTimer = useRef<number | null>(null);
   const maxWaitTimer = useRef<number | null>(null);
@@ -176,6 +263,10 @@ export function NoteEditor({ note }: { note: NoteView }) {
         notice.showSessionExpired();
         return;
       }
+      if (reason === "rejected") {
+        notice.showRejected(() => retryNow.current());
+        return;
+      }
       // Through the ref: the notice is built before `attemptSave` exists in this scope,
       // and the closure it hands to the toast is never replaced once shown (Toast
       // compares actions by label, so an identical re-show is a no-op). Inlining
@@ -216,11 +307,25 @@ export function NoteEditor({ note }: { note: NoteView }) {
         return;
       }
 
-      // What is left: `invalid` and `limitReached`, which the editor blocks before they
-      // can happen — and `unavailable`, which only reaches here from the DELETE path
-      // (autosave handles it with the ladder before ever calling this). All three are
-      // one-shot: there is nothing for the user to retry that the Delete button does not
-      // already offer.
+      if (failure === "invalid") {
+        // The server refused the payload. Stop saving and hand the next move over —
+        // retrying unchanged bytes would fail identically, forever. The notice carries
+        // **Retry now**, which is what the user needs once they have removed the chip
+        // the server would not take: saving stays suspended until something asks for
+        // it, so a corrected note with no button would sit there unsaved.
+        //
+        // NOTE this is reached from the DELETE path too, where `invalid` is not
+        // producible (deleteNote validates only the id's shape and answers `notFound`).
+        // If that ever changes, suspending the editor for a failed delete would be the
+        // wrong response and this branch needs splitting.
+        suspend("rejected");
+        return;
+      }
+
+      // What is left: `limitReached`, which only `createNote` can raise, and
+      // `unavailable`, which reaches here from the DELETE path alone (autosave answers
+      // it with the ladder before ever calling this). Both are one-shot: there is
+      // nothing to retry that the Delete button does not already offer.
       notice.showGeneric();
     },
     [clearSaveTimers, notice, router, suspend],
@@ -427,6 +532,21 @@ export function NoteEditor({ note }: { note: NoteView }) {
     scheduleSave();
   }
 
+  /**
+   * A committed or removed chip. No cap check here: `TagEditor` owns the Block F rules
+   * and hands over an array that already satisfies them, and `lib/notes.ts` re-checks
+   * the same rules on arrival because the action is a public POST. A third copy in the
+   * middle would be the one that drifts.
+   *
+   * The array is stored as given rather than copied: `TagEditor` builds a new one on
+   * every change, so there is nothing shared to mutate later.
+   */
+  function handleTagsChange(next: string[]) {
+    setTags(next);
+    draft.current = { ...draft.current, tags: next };
+    scheduleSave();
+  }
+
   function handleDelete() {
     // Stop the autosave machinery first: a pending debounce firing after the row is
     // gone would answer with G-13's "no longer exists" notice for a note the user
@@ -531,6 +651,11 @@ export function NoteEditor({ note }: { note: NoteView }) {
         />
 
         <div className="mx-5 border-t border-border sm:mx-7" />
+
+        {/* SPEC Block E's order inside the sheet: title, hairline, tags row, content.
+            One hairline only — the tags sit in the body half, with the text they
+            describe, rather than being boxed off as a third zone. */}
+        <TagEditor tags={tags} onChange={handleTagsChange} />
 
         <textarea
           value={content}

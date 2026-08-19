@@ -80,6 +80,14 @@ export async function saveNote(id: string, patch: NotePatch): Promise<ActionResu
   if (typeof patch?.content === "string") {
     changes.content = patch.content;
   }
+  // An array of strings, checked element by element rather than cast: this is a POST
+  // body, so `string[]` is a claim the payload makes, not a fact. What the tags MEAN
+  // (trimmed, capped, unique) is the DAL's rule — this only establishes the shape,
+  // because a non-array here would reach Postgres as a malformed value instead of a
+  // refusal the editor can act on.
+  if (Array.isArray(patch?.tags) && patch.tags.every((tag) => typeof tag === "string")) {
+    changes.tags = patch.tags;
+  }
 
   try {
     await notes.updateNote(id, changes);
@@ -87,11 +95,25 @@ export async function saveNote(id: string, patch: NotePatch): Promise<ActionResu
     return { ok: false, failure: failureOf(error, "saveNote") };
   }
 
-  // The LIST only. Revalidating this note's own route as well would force a server
-  // re-render of /notes/[id] on every autosave — an extra getUser() plus a getNote(),
-  // whose payload the editor discards, because its text is local state after mount
-  // (rule B2). Rule B1 asks for revalidatePath, not for revalidating a route that
-  // displays nothing the write changed.
+  // The LIST only — and MEASURED AT THE PHASE 6 GATE, this does not buy what the
+  // comment here used to claim.
+  //
+  // The old claim: naming only `/notes` avoids a server re-render of `/notes/[id]` on
+  // every autosave. It does not. Revalidating ANY path marks the request as having
+  // revalidated, which makes Next render the CURRENT route's flight data alongside the
+  // action result — so an autosave POSTed from the editor re-renders `/notes/[id]` on
+  // the server (its `getUser()` and `getNote()` included) and streams an RSC tree back
+  // that `NoteEditor` discards, because its text is local state after mount (rule B2).
+  // Confirmed by the owner in DevTools: every autosave POST answers with **~6.4 kB**,
+  // not the ~40 bytes a bare `{ ok: true }` would be. Traced to Next 16.3.1's
+  // `revalidate.js` / `action-handler.js`; the narrower `revalidateTag` escape hatches
+  // behave the same way or fail to refresh the list at all.
+  //
+  // Left in place deliberately. SPEC rule B1 names `revalidatePath` as part of the one
+  // mutation pipeline, so dropping it here is a spec change and a gate decision, not a
+  // silent optimisation — it is parked as post-sprint debt with the measurement
+  // attached. What is fixed now is the comment: a docblock promising a saving the
+  // framework does not give is exactly what CLAUDE.md rule 18 forbids.
   revalidatePath(ROUTES.notes);
   return { ok: true };
 }

@@ -21,8 +21,15 @@ create policy "notes_update_own" on public.notes
 create policy "notes_delete_own" on public.notes
   for delete using (auth.uid() = user_id);
 
--- List screen sorts by newest first and always filters by owner.
+-- Both list orderings, owner-scoped. The screen walks (user_id, updated_at desc) —
+-- updated_at is the timestamp each card prints (Block E). The created_at pair predates
+-- it and is kept for an ordering by creation time, which nothing does today.
 create index notes_user_created_idx on public.notes (user_id, created_at desc);
+create index notes_user_updated_idx on public.notes (user_id, updated_at desc);
+
+-- The tag filter is a containment predicate (tags @> ARRAY['client']). GIN is the
+-- index type that answers @> on an array column; a btree cannot.
+create index notes_tags_idx on public.notes using gin (tags);
 
 -- Auto-touch updated_at on every update.
 create or replace function public.set_updated_at()

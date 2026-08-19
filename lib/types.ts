@@ -26,12 +26,19 @@ export type NoteView = Omit<Note, "user_id">;
 /**
  * The fields a caller may change. Ownership and timestamps are not among them:
  * `user_id` comes from `getUser()` and `updated_at` from the Postgres trigger
- * (SPEC Block C), so neither is patchable by anyone. `tags` joins this type in
- * Phase 6 along with the editor that writes them.
+ * (SPEC Block C), so neither is patchable by anyone.
+ *
+ * `tags` is a WHOLE-ARRAY replacement, not an add/remove instruction, because that
+ * is what the debounced pipeline needs: `TagEditor` commits and removes chips in
+ * local state (rule B2) and the save that follows sends the resulting array, so two
+ * chips added inside one debounce window are one write rather than two. It also
+ * keeps the patch idempotent — a retry after a failed save re-sends the same array
+ * instead of appending a second copy of the tag (rule B8 retries the CURRENT draft).
  */
 export interface NotePatch {
   title?: string;
   content?: string;
+  tags?: string[];
 }
 
 /**

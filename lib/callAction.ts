@@ -10,11 +10,20 @@ import type { ActionFailure, ActionResult } from "@/lib/types";
  * it as an error. A catch-all here turned every successful "New note" into
  * "Couldn't create the note. Try again." while the editor opened behind the toast.
  *
- * `NEXT_HTTP_ERROR_FALLBACK` is the same kind of signal for `notFound()`. No action in
- * this app calls it today; it is matched so the next one does not have to rediscover
- * this.
+ * ONLY `NEXT_REDIRECT`. `NEXT_HTTP_ERROR_FALLBACK` — what `notFound()`, `forbidden()`
+ * and `unauthorized()` throw — used to be matched here as well, "so the next action does
+ * not have to rediscover this", and that was the trap: those three mean the action
+ * REFUSED, and reporting a refusal as `{ ok: true }` would have made the first caller
+ * that hit one toast "Note deleted." for a note that is still there. It fell out of the
+ * list rather than being given a case of its own, because no action in this app calls
+ * any of the three and an unused branch is a worse lie than none: an action that does
+ * will land in the digest path below, be reported as `unavailable`, and log — which is
+ * visible and wrong-but-safe, and the cue to add a real case here at that point.
+ *
+ * (Routed to Phase 6 at the Phase 4 gate, from the fresh-session review of `feat/notes`.
+ * Phase 6 is where it landed because tags are the first new action surface since.)
  */
-const FRAMEWORK_SIGNALS = ["NEXT_REDIRECT", "NEXT_HTTP_ERROR_FALLBACK"];
+const FRAMEWORK_SIGNALS = ["NEXT_REDIRECT"];
 
 /**
  * The `digest` Next attaches to an error that CROSSED THE SERVER BOUNDARY, or null.

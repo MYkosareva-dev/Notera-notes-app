@@ -5,7 +5,7 @@ import type { AuthError, PostgrestError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { LIMITS } from "@/lib/types";
 import type { NoteFailure, NotePatch, NoteView } from "@/lib/types";
-import { isUuid } from "@/lib/validation";
+import { hasTag, isUuid, isValidTag, normalizeTag } from "@/lib/validation";
 
 /**
  * The notes data-access layer — FENCE 1 of CLAUDE.md rule 3 / SPEC rule B3, and the
@@ -39,6 +39,19 @@ import { isUuid } from "@/lib/validation";
 
 /** Columns handed out as `NoteView` — `user_id` is deliberately not among them. */
 const NOTE_COLUMNS = "id, title, content, tags, created_at, updated_at";
+
+/**
+ * C0 controls, which `trim()` leaves in place (it strips whitespace, and U+0000 is not
+ * whitespace). No tag the app writes SHOULD contain one — but nothing stops it:
+ * `isValidTag` requires the tag to equal its trimmed form and says nothing about
+ * controls, so a pasted U+0001 is storable, and its own chip then filters to an empty
+ * list here. That asymmetry is the accepted design, not an oversight — this is the read
+ * path's own guard rather than a restatement of a write rule, and extending
+ * `isValidTag` would be a behaviour change to the write path for a case no keyboard
+ * produces. (U+0000 is the exception that needs no rule: Postgres `text` cannot hold
+ * one, so that tag fails its save instead of reaching storage.) See `listNotes`.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 /** Postgres/PostgREST codes that mean "no such row here", not "the query broke". */
 const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
@@ -179,26 +192,74 @@ function requireNoteId(id: string): string {
 }
 
 /**
- * The user's notes, newest first — the `/notes` list (SPEC Block E).
+ * One element of a PostgREST array literal, quoted.
  *
- * `tag` is the Phase 6 tag filter's query path (SPEC US5: the filter must hit the
- * database, not browser memory). It has no UI caller yet; the DAL owns it because
- * a containment filter is a query, and queries live here. `.contains` compiles to
- * Postgres `@>` — "the column holds all of these values" — and composes with, not
- * instead of, the ownership filter.
+ * VERIFIED IN THE INSTALLED SDK, not remembered — docs/supabase-postgres-queries-filters.md
+ * opens its `.contains()` section with a GAP annotation saying Context7 never returned
+ * that reference page, so the call had to be confirmed against
+ * `node_modules/@supabase/postgrest-js/src/PostgrestFilterBuilder.ts`. There,
+ * `contains(column, array)` builds the query value as `cs.{${value.join(",")}}` — a raw
+ * join with NO quoting of its own (unlike `.in()`, which quotes). That string is then
+ * handed to `URLSearchParams.append`, so it is URL-encoded exactly once and never
+ * concatenated into SQL.
+ *
+ * Consequence, and the reason this function exists: an unquoted element makes the comma
+ * a SEPARATOR. `.contains("tags", ["Design, UX"])` emits `cs.{Design, UX}`, which asks
+ * Postgres for notes carrying BOTH `Design` and ` UX` — a filter that silently returns
+ * nothing for a tag the user can perfectly well create, since SPEC Block F puts no
+ * character rule on a tag (trimmed and length-capped, nothing more). A brace is worse:
+ * a malformed array literal, rejected with `22P02`, which this file maps to `notFound`.
+ * Quoting every element removes the whole class — a double-quoted element is always one
+ * value — and costs nothing for the ordinary tag.
+ *
+ * Backslash first, then the quote: escaping in the other order would re-escape the
+ * backslashes this function itself just added.
+ */
+function tagLiteral(tag: string): string {
+  return '"' + tag.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+/**
+ * The user's notes, most recently updated first — the `/notes` list (SPEC Block E).
+ *
+ * `tag` is the tag filter's query path, and SPEC US5 is specific about it: the
+ * filtering must happen in the DATABASE, not in the browser. So the filter is a
+ * predicate on this query, and no row the user did not ask for is ever sent to the
+ * browser to be hidden there. `.contains` compiles to Postgres `@>` ("the column holds
+ * all of these values") and composes WITH the ownership filter rather than instead of
+ * it — nothing in `tag` can widen `.eq("user_id", ...)`, because they are two separate
+ * entries in the query string.
+ *
+ * A tag that no stored tag could equal is refused without a round-trip, the same
+ * courtesy `requireNoteId` does for a malformed uuid. Two cases: longer than
+ * `LIMITS.tagMax`, which is the write-side cap; and holding a C0 control character,
+ * which `normalizeTag`'s `trim()` does NOT strip — U+0000 in particular survives it,
+ * and Postgres `text` cannot hold a NUL at all, so the array literal is truncated at
+ * the transport layer and comes back as `22P02`. This file maps that to `notFound`, so
+ * `/notes?tag=%00` rendered "Couldn't load your notes." with a **Try again** that could
+ * only fail again. Quoting cannot fix that one — the byte never reaches the quotes —
+ * so the guard is where it belongs. Neither case is a security check: what scopes the
+ * rows is the ownership filter plus RLS. Both are simply "no note can carry this",
+ * whose honest answer is an empty list.
  *
  * The `.limit()` is `LIMITS.notesPerUser`: the row cap rule B7 enforces on write,
  * so it is also the largest honest page size (rule 11 — the number is imported).
  *
  * Ordered by `updated_at desc` so the order follows the timestamp the card actually
  * prints (SPEC Block E) — sorting by `created_at` while displaying `updated_at` produced
- * a list whose order contradicted its own labels. The index in Block C is still
- * `(user_id, created_at desc)`, so this ordering sorts rather than walks the index; at
- * `LIMITS.notesPerUser` rows that is nothing, and the matching index joins the Phase 6
- * schema batch (rule 8 — DDL changes go through SPEC Block C and a SQL Editor re-run).
+ * a list whose order contradicted its own labels. Both access paths this function uses
+ * are indexed as of Phase 6: `notes_user_updated_idx` on `(user_id, updated_at desc)`
+ * for the ordering, and the GIN index `notes_tags_idx` for the `@>` above, which a btree
+ * cannot answer. Both are in SPEC Block C and in `supabase/schema.sql`, and both were
+ * run in the SQL Editor — the two files describe a database that exists (rule 8).
  */
 export async function listNotes(tag?: string): Promise<NoteView[]> {
   const { supabase, user } = await requireUser();
+
+  const wanted = normalizeTag(tag ?? "");
+  if (wanted.length > LIMITS.tagMax || CONTROL_CHARACTERS.test(wanted)) {
+    return [];
+  }
 
   let query = supabase
     .from("notes")
@@ -207,11 +268,10 @@ export async function listNotes(tag?: string): Promise<NoteView[]> {
     .order("updated_at", { ascending: false })
     .limit(LIMITS.notesPerUser);
 
-  const wanted = tag?.trim();
-  if (wanted !== undefined && wanted.length > 0) {
-    // Passed as a parameter by the SDK, never interpolated into SQL (SPEC G-24),
-    // and kept as its own call so it cannot widen the ownership predicate.
-    query = query.contains("tags", [wanted]);
+  if (wanted.length > 0) {
+    // Its own call, so it can only narrow the query — and quoted, so a tag holding a
+    // comma or a brace is one value rather than array-literal syntax (see tagLiteral).
+    query = query.contains("tags", [tagLiteral(wanted)]);
   }
 
   const { data, error } = await query.overrideTypes<NoteView[], { merge: false }>();
@@ -221,6 +281,51 @@ export async function listNotes(tag?: string): Promise<NoteView[]> {
   }
 
   return data;
+}
+
+/**
+ * Every distinct tag across the caller's own notes — the contents of `TagFilter`
+ * (SPEC US5 step 3: "one chip per distinct tag").
+ *
+ * A second query rather than a derivation from `listNotes()`, deliberately: the filter
+ * must list ALL of the user's tags even while one is active, or clicking
+ * `client` would leave `urgent` with no chip to click back to. Deriving the row from
+ * the filtered rows would do exactly that.
+ *
+ * Only the `tags` column crosses the wire, so this costs far less than a second full
+ * list, and the distinct-ing happens here rather than in SQL because PostgREST cannot
+ * express `select distinct unnest(tags)` without an RPC — and an RPC would be a second
+ * entry point into this table (rule 3b).
+ *
+ * DISTINCT BY EXACT VALUE, not case-insensitively, even though one note may not carry
+ * `Client` and `client` at once (that rule is per note — see `isSameTag`). Across two
+ * notes both spellings can exist, and `@>` is case-sensitive: a `Client` chip and a
+ * `client` chip select different notes, so folding them into one chip would give that
+ * chip a set of rows it does not describe. Sorted, because the order of `tags` within a
+ * note is the order the user typed them, which is not an ordering for a shared row.
+ */
+export async function listTags(): Promise<string[]> {
+  const { supabase, user } = await requireUser();
+
+  const { data, error } = await supabase
+    .from("notes")
+    .select("tags")
+    .eq("user_id", user.id)
+    .limit(LIMITS.notesPerUser)
+    .overrideTypes<{ tags: string[] }[], { merge: false }>();
+
+  if (error !== null) {
+    raise(error, "listTags");
+  }
+
+  const distinct = new Set<string>();
+  for (const row of data) {
+    for (const tag of row.tags) {
+      distinct.add(tag);
+    }
+  }
+
+  return [...distinct].sort((left, right) => left.localeCompare(right, "en-US"));
 }
 
 /**
@@ -321,6 +426,33 @@ export async function updateNote(id: string, patch: NotePatch): Promise<void> {
       throw new NotesError("invalid", "content too long");
     }
     changes.content = patch.content;
+  }
+
+  if (patch.tags !== undefined) {
+    // The same three Block F rules `TagEditor` applies, applied again — and here they
+    // are the rule rather than the courtesy, because this arrives as a POST body. The
+    // array is checked as a whole because that is how it is patched (see NotePatch):
+    // a caller who sends eleven tags, a 200-character tag or an untrimmed one is
+    // refused outright rather than silently corrected, so the client's local state
+    // never diverges from what was stored.
+    //
+    // The Block C CHECK is the third fence, and it only bounds the array LENGTH —
+    // `LIMITS.tagMax` has no database counterpart (a recorded schema-amendment
+    // candidate), so this is the last place a 200-character tag can be stopped.
+    if (patch.tags.length > LIMITS.tagsPerNote) {
+      throw new NotesError("invalid", "too many tags");
+    }
+    const tags: string[] = [];
+    for (const tag of patch.tags) {
+      if (!isValidTag(tag)) {
+        throw new NotesError("invalid", "malformed tag");
+      }
+      if (hasTag(tags, tag)) {
+        throw new NotesError("invalid", "duplicate tag");
+      }
+      tags.push(tag);
+    }
+    changes.tags = tags;
   }
 
   if (Object.keys(changes).length === 0) {
