@@ -205,12 +205,71 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return <ToastContext value={value}>{children}</ToastContext>;
 }
 
-/** The viewport, mounted once in the root layout. */
+/**
+ * The viewport, mounted once in the root layout.
+ *
+ * It also owns FOCUS RESTORATION, which is behaviour rather than decoration: a control
+ * inside a toast (the × or the action) takes focus when clicked, and the toast then
+ * disappears out from under it. The browser drops focus to `<body>`, so the user's next
+ * keystroke goes nowhere — on the save-failure notice that is the recovery path itself,
+ * since it is an edit that brings a dismissed notice back.
+ *
+ * So the last element focused OUTSIDE the viewport is remembered, and focus returns
+ * there when the element that had it goes away with its toast. Deliberately narrow: if
+ * focus is not inside the viewport when the toasts change — the ordinary case of a timed
+ * toast expiring while the user types — nothing is touched, because a notice must never
+ * steal or move the caret on its own.
+ */
 export function Toaster() {
   const { toasts, dismiss } = useToast();
+  const viewport = useRef<HTMLDivElement>(null);
+  /** The last thing focused outside the viewport: where focus goes back to. */
+  const lastOutside = useRef<HTMLElement | null>(null);
+  /** Whether focus currently sits on a control inside a toast. */
+  const focusInside = useRef(false);
+
+  useEffect(() => {
+    function trackFocus(event: FocusEvent) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const inside = viewport.current?.contains(target) ?? false;
+      focusInside.current = inside;
+      if (!inside) {
+        lastOutside.current = target;
+      }
+    }
+
+    // `focusin` bubbles (unlike `focus`), so one document listener sees every move,
+    // whether the user got there by mouse or by keyboard.
+    document.addEventListener("focusin", trackFocus);
+    return () => document.removeEventListener("focusin", trackFocus);
+  }, []);
+
+  useEffect(() => {
+    if (!focusInside.current) {
+      return;
+    }
+    const active = document.activeElement;
+    const stillInside =
+      active instanceof HTMLElement && (viewport.current?.contains(active) ?? false);
+    if (stillInside) {
+      // The toasts changed but the focused control survived (a notice updated in
+      // place, say). Nothing to restore.
+      return;
+    }
+
+    focusInside.current = false;
+    const target = lastOutside.current;
+    if (target !== null && target.isConnected) {
+      target.focus();
+    }
+  }, [toasts]);
 
   return (
     <div
+      ref={viewport}
       aria-live="polite"
       className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4"
     >
