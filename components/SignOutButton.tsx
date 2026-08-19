@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import type { FormEvent } from "react";
 
 import { signOut } from "@/app/notes/actions";
+import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 
 /**
@@ -22,18 +23,17 @@ export function SignOutButton() {
     event.preventDefault();
 
     startTransition(async () => {
-      // Swallowed deliberately, and only for the transport case: SPEC Block E's
-      // actions table says a failed sign-out shows the user nothing, because the
-      // action redirects on every path it can reach. Offline it cannot reach any of
-      // them — the session is still live and the user stays where they are. What this
-      // catch buys is that the failure is logged rather than surfacing as an unhandled
-      // rejection (and, in dev, as an error overlay). Raised at the Phase 4 gate and
-      // decided there: silence covers the offline case as well, recorded in SPEC Block E's
-      // actions table. A visible notice is a post-sprint candidate and would change that
-      // row first — do not add one here on its own.
-      await signOut().catch((error: unknown) => {
-        console.error("[signOut] the action never ran", error);
-      });
+      // Through callAction, for the same reason as SignInForm: this action ALWAYS
+      // redirects, so its promise always rejects with NEXT_REDIRECT. A bare `.catch`
+      // here logged "the action never ran" on every successful sign-out — noise that
+      // also made the log useless for the case it was added for.
+      //
+      // The result is deliberately ignored. SPEC Block E's actions table says a failed
+      // sign-out shows the user nothing: offline the action cannot run, the session
+      // stays live, and the user stays where they are. Decided at the Phase 4 gate; a
+      // visible notice would change that row first — do not add one here on its own.
+      // callAction still logs the real transport failure for the developer.
+      await callAction(signOut);
     });
   }
 

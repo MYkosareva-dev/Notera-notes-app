@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 
 import { signIn } from "@/app/sign-in/actions";
+import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 import { isValidEmail } from "@/lib/validation";
 
@@ -81,21 +82,37 @@ export function SignInForm() {
     formData.set("password", password);
 
     startTransition(async () => {
-      // A rejected call means the action never ran — the browser is offline or the
-      // dev server is down. Without this the submit would end silently, with no
-      // message and no navigation. SPEC G-7's copy covers "could not sign in for a
-      // reason that is not the credentials", which is exactly this case.
-      const result = await signIn(formData).catch((error: unknown) => {
-        console.error("[signIn] the action never ran", error);
-        return { error: copy.errors.generic };
-      });
-      // Reached on failure only: a successful sign-in redirects, so the call
-      // navigates instead of resolving with a value — hence the optional chain.
-      if (result?.error) {
+      // Three outcomes, not two. `callAction` is what separates them:
+      //
+      //   { error }            the action RAN and refused — wrong credentials, rate
+      //                        limit, or Auth unreachable from the server. Message
+      //                        already chosen server-side.
+      //   { ok: true }         the action ran and redirected. Nothing to do: the
+      //                        router is already navigating to /notes.
+      //   { ok: false }        the action never ran (offline, dev server down).
+      //
+      // The middle case is why this call cannot use a bare `.catch`. `redirect()`
+      // REJECTS the client promise with NEXT_REDIRECT, so a catch-all read every
+      // successful sign-in as a failure: it rendered copy.errors.generic and wiped the
+      // password for the two frames before the navigation landed — a red flash on every
+      // correct password. Measured on throwaway probe routes: ~2 ms of error, then the
+      // redirect. `callAction` reports that signal as success instead.
+      const result = await callAction(() => signIn(formData));
+
+      if ("error" in result) {
         // US1 step 2: the form stays filled except the password.
         setPassword("");
         setPasswordVisible(false);
         setError(result.error);
+        setInvalidField("form");
+        return;
+      }
+
+      if (!result.ok) {
+        // SPEC G-7's copy, for the case where the request never left the browser. The
+        // password is deliberately KEPT here, unlike a refusal: nothing was submitted,
+        // so there is nothing to re-type once the connection is back.
+        setError(copy.errors.generic);
         setInvalidField("form");
       }
     });
