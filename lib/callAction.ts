@@ -62,7 +62,19 @@ export async function callAction<T>(run: () => Promise<T>): Promise<T | ActionRe
     }
     // Developer-visible only: the user-facing message is the caller's business, and
     // every string it could use lives in lib/copy.ts (rule 10).
-    console.error("[callAction] the action never ran", error);
+    //
+    // WARN, NOT ERROR, and the severity is the point. This branch is the HANDLED case:
+    // the failure is already modelled as a structured `unavailable` result that every
+    // caller answers (rule B8's ladder, the create/delete toasts), so nothing here is
+    // unaccounted for. Logged at error level it also fed the Next dev overlay — a
+    // "Failed to fetch" card with a call stack over the app on every offline save,
+    // which is a real defect's presentation for something the app is handling exactly
+    // as specified. `warn` keeps the same context in the console for the developer
+    // without claiming the app broke.
+    //
+    // Anything genuinely unhandled must stay `console.error` — app/error.tsx, which
+    // logs the exception that escaped rendering, is the one that must keep it.
+    console.warn("[callAction] the action never ran", error);
     return { ok: false, failure: "unavailable" } satisfies ActionFailure;
   }
 }
