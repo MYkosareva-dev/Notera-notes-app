@@ -278,7 +278,8 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 
 ### Screen: `/notes`
 - Layout: `Header` (app name left; **New note** button and **Sign out** right); below it `TagFilter` chip row (chip **All** + one chip per distinct tag of the user's notes); then a responsive card grid (1 col at 375, 3 cols at 1280).
-- `NoteCard`: title (or "Untitled" in muted style when empty), 2-line content preview, tag chips, `updated_at` as relative date. Click → `/notes/[id]`.
+- `NoteCard`: title (or "Untitled" in muted style when empty), 2-line content preview, tag chips, `updated_at` as relative date, and a `MoreMenu` "⋯" trigger in the top-right corner — revealed on hover (or keyboard focus) at desktop, always visible at 375 where there is no hover to reveal it with, and kept visible while its own menu is open. Click anywhere else on the card → `/notes/[id]`.
+> Decision: the card-wide link is an ABSOLUTE OVERLAY, not the card's wrapper element, and it carries the note's title as its accessible name. Interactive content may not nest inside an `<a>`: a trigger inside the link would be activated by the link on Enter, and no amount of `stopPropagation` fixes that. As siblings there is nothing to stop — a click on the menu never reaches the link. The cost, accepted: the preview text is not selectable.
 - States: **Loading** — 6 skeleton cards (`Skeletons.tsx`); **Empty** — illustration-free card: "No notes yet." + subtext "Create your first note to get started." + **New note** CTA; empty because of a tag filter: "No notes with this tag."; **Error** — full-width inline card: "Couldn't load your notes." + **Try again** button (re-fetch).
 - Actions table:
 
@@ -286,6 +287,8 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 |---|---|---|
 | New note | Server Action insert → redirect `/notes/[id]` | Toast "Couldn't create the note. Try again." |
 | Click card | Navigate `/notes/[id]` | — |
+| ⋯ → **Edit** | Navigate `/notes/[id]` — the named form of clicking the card, because the whole-card link is convenient but silent | — |
+| ⋯ → **Delete** | `ConfirmDialog` (US4 copy) → the SAME `deleteNote` Server Action, therefore the same DAL and the same ownership filter → `revalidatePath` drops the card in place + toast "Note deleted." No second deletion path exists | Toast; the note stays. "This note no longer exists." if it was already gone (G-13) |
 | Click tag chip | Server re-fetch filtered by tag | Error state card |
 | Sign out | Server Action → `revalidatePath` + redirect `/sign-in` | none — the redirect happens regardless, because auth-js has already cleared the local session on every error path; the error is logged server-side, not shown |
 > Decision (Phase 4 gate, owner-approved): "none" covers the OFFLINE case too. When the action cannot run at all the session is still live, the user stays where they are, and nothing is shown — the failure is logged for the developer only (CLAUDE.md rule 13 is satisfied by the log, not by a message, because there is nothing the user could act on that the button does not already offer). A visible "couldn't sign out" notice is a post-sprint candidate; it would change this row, so it is not a silent improvement anyone should make in passing.
@@ -303,8 +306,9 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 |---|---|---|
 | Header, EmptyState, ConfirmDialog | carried from Notera | restyle only |
 | Toast | carried from Notera, extended in Phase 4 | `showToast(message, { variant, duration, action, key })`. `duration: "persistent"` **is** rule B8's banner and edge case G-1's session notice — one queue, so two notices cannot overlap; `action` carries **Retry now** / **Sign in**, rendered as a FILLED accent button, never a text link (a link-styled action was missed entirely on first encounter, and it is the only way out of the state the notice describes; accent rather than danger fill even inside a danger notice, because in this app red means destructive); `key` dedupes, so the retry ladder updates one notice instead of stacking four and a cap message toasts once. No separate `Banner` component: this table sanctions none, and rule 17 makes that a prohibition. |
+| MoreMenu | **new in Phase 4** | Icon-only `⋯` trigger + `role="menu"` list. `aria-haspopup`/`aria-expanded`/`aria-controls`; opening focuses the first item; Escape closes and returns focus to the trigger; arrow keys move and wrap; an outside `pointerdown` closes without stealing focus back. Presentational — it takes a label and items and never knows what they do. **Recorded because the phase brief described it as carried over from Notera: it was not.** No `MoreMenu` existed in this repo, in any commit on any branch, or in this table (BUILD_PHASES names a Notera `InlineRename`, also never ported), so none of the behaviour above is inherited — it is new code, written and verified in Phase 4. |
 | TagEditor | Notera `LabelEditor` descendant | Enter commits, × removes, cap per `LIMITS.tagsPerNote` |
-| NoteCard, TagFilter, Skeletons, SignInForm, NoteEditor | new | per specs above |
+| NoteCard, NoteCardMenu, TagFilter, Skeletons, SignInForm, NoteEditor, ErrorCard, NewNoteButton | new | per specs above |
 
 ---
 

@@ -98,6 +98,14 @@ export const copy = {
       signIn: SIGN_IN_LABEL,
     },
 
+    // The per-card "⋯" menu (SPEC Block E). `label` is the icon-only trigger's
+    // accessible name; `edit` names the destination the whole-card link reaches
+    // silently.
+    menu: {
+      label: "More actions",
+      edit: "Edit",
+    },
+
     // Destructive confirmation, SPEC US4 step 2 — exact wording.
     delete: {
       action: "Delete",
