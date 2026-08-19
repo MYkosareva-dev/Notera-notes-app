@@ -236,6 +236,12 @@ export function NoteEditor({ note }: { note: NoteView }) {
     async (attempt: number): Promise<void> => {
       const patch = diff(draft.current, saved.current);
       if (patch === null) {
+        // Nothing to send, because the draft already matches what the server confirmed —
+        // and that is precisely what "Saved" means (`saved` only advances on an `ok`).
+        // Without this line the optimistic "Saving…" that scheduleSave sets on every
+        // keystroke stood forever whenever an edit was undone inside the debounce window:
+        // type a character, delete it, and the footer claimed progress that had stopped.
+        setSaveState("saved");
         return;
       }
 
