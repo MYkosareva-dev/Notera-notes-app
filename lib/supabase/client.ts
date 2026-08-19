@@ -19,6 +19,11 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
  * and off-browser this client reads an empty cookie jar, so the mistake surfaces
  * as a spurious "signed out" redirect rather than an error.
  *
+ * Note it DOES refresh tokens (`createBrowserClient` defaults `autoRefreshToken`
+ * to true). That is correct here and not a hole in the server-side rule that only
+ * `lib/supabase/proxy.ts` may refresh: a browser can persist the rotated cookies,
+ * which is exactly what a Server Component cannot do (see lib/supabase/server.ts).
+ *
  * This client must never touch the `notes` table. All notes data access goes
  * through the server-only DAL `lib/notes.ts` (CLAUDE.md rule 3b), and access
  * decisions are made on the server with `getUser()` (rule 2) — never here.

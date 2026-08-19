@@ -41,6 +41,7 @@ A private, per-user notes app. A signed-in user creates, edits and deletes their
 | **Prohibited** | Pages Router; any ORM (Prisma/Drizzle); custom password handling of any kind; the service-role key anywhere in the app code or in any `NEXT_PUBLIC_*` variable; `localStorage`/`sessionStorage` for note data or session data; `dangerouslySetInnerHTML`; any other npm dependency without explicit owner approval | |
 
 > Decision: No custom `/api` routes (M3 = NO). Reads run in Server Components, mutations in Server Actions; both call Supabase with the anon key under RLS. This removes an entire layer where auth mistakes could hide, and the server-side session check is exactly what the sprint grades.
+> Decision: auth cookies keep `@supabase/ssr` default options (`path: /`, `sameSite: lax`, `httpOnly: false`, 400-day `maxAge`). `httpOnly: false` is what the official cookie pattern ships, because `createBrowserClient` reads the session through `document.cookie`; forcing `httpOnly: true` would break that documented contract and the `supabase/client.ts` entry above. Accepted for a local-only sprint with no injection sink in the app (no `dangerouslySetInnerHTML`, every string from `lib/copy.ts`) — revisit at deployment, together with `secure` in production.
 > Decision: Sessions are cookie-based via `@supabase/ssr`, because the server must be able to verify the session before rendering protected pages; the default browser client stores sessions in `localStorage`, which the server cannot see and which the assignment prohibits.
 > Decision: On the server the ONLY way to read the authenticated user is `supabase.auth.getUser()`. `getSession()` does not validate the JWT and is prohibited for any access decision.
 > Decision (from the P0 persistence consultation): all notes data access goes through ONE `server-only` module, `lib/notes.ts` (the DAL). It calls `getUser()` itself and refuses to run without a user. Rationale: every Server Action is a publicly callable POST endpoint and Next.js protects nothing by itself; a single chokepoint turns per-function discipline into one auditable file. The module seam also replaces the previous project's HTTP seam: same substitutability, no cookie-forwarding hazard, and a browser cannot call it.
@@ -55,21 +56,25 @@ app/
   error.tsx                  # Global error boundary (recoverable screen + Try again)
   not-found.tsx              # Friendly 404
   sign-in/page.tsx           # Public sign-in page (Server Component + <SignInForm/>)
+  sign-in/actions.ts         # Server Action: signIn (public page never imports from notes/)
   notes/layout.tsx           # PROTECTED layout: server-side getUser() check → redirect("/sign-in")
   notes/page.tsx             # Notes list (Server Component fetch) + tag filter
   notes/actions.ts           # Server Actions: createNote, updateNote, deleteNote, signOut
   notes/[id]/page.tsx        # Note editor page (Server Component fetch → <NoteEditor/>)
   notes/[id]/not-found.tsx   # "This note doesn't exist (anymore)."
-middleware.ts                # Session refresh + redirect unauthenticated /notes* → /sign-in
+proxy.ts                     # Session refresh + redirect unauthenticated /notes* → /sign-in
 components/
-  SignInForm.tsx  NoteCard.tsx  NoteEditor.tsx  TagEditor.tsx  TagFilter.tsx
+  SignInForm.tsx  SignOutButton.tsx  NoteCard.tsx  NoteEditor.tsx
+  TagEditor.tsx  TagFilter.tsx
   Header.tsx  EmptyState.tsx  ConfirmDialog.tsx  Toast.tsx  Skeletons.tsx
 lib/
   notes.ts                   # server-only data-access layer (DAL): ALL notes reads/writes; calls getUser() itself, throws/redirects when no user
   supabase/server.ts         # createServerClient (cookies) — used by the DAL and auth actions
-  supabase/middleware.ts     # session refresh helper for middleware.ts
+  supabase/proxy.ts          # session refresh helper for proxy.ts
   supabase/client.ts         # createBrowserClient — ONLY where a client component must call auth
+  supabase/env.ts            # the two NEXT_PUBLIC_* vars, read once and validated
   types.ts                   # Note type, LIMITS
+  validation.ts              # shared input predicates (email shape), used by form AND action
   copy.ts                    # every user-visible string; numbers interpolated from LIMITS
 docs/                        # pasted official Supabase/Next docs fetched via Context7, each with "Source: <url>" + annotations
 docs/persistence-decision.md # public record of the P0 persistence consultation
@@ -92,7 +97,7 @@ WORKLOG.md (private, gitignored)
 |---|---|---|
 | `/` | Redirect to `/notes` | Any (redirect target enforces auth) |
 | `/sign-in` | Sign-in form | Public; a signed-in visitor is redirected to `/notes` |
-| `/notes` | Notes list + tag filter + New note | Authenticated only (middleware + `notes/layout.tsx` server check) |
+| `/notes` | Notes list + tag filter + New note | Authenticated only (`proxy.ts` + `notes/layout.tsx` server check) |
 | `/notes/[id]` | Note editor | Authenticated only; a note not owned by the user → `notFound()` |
 | unknown `/notes/[id]` | `notes/[id]/not-found.tsx` | Authenticated |
 
@@ -114,9 +119,9 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 
 ### US2 — Workspace is private
 1. Mara signs out via the header button → redirected to `/sign-in`.
-2. She pastes `http://localhost:3000/notes` into the address bar → server redirects to `/sign-in` before any note content is rendered.
+2. She pastes `http://localhost:3000/notes` into the address bar → the server redirects to `/sign-in`, and no note content is fetched because the DAL refuses without a user.
 3. She pastes a direct note URL `/notes/9f2e…` → same redirect.
-- [ ] No `/notes*` URL renders any note data without a valid session
+- [ ] No `/notes*` URL renders any note data without a valid session — owned by fence 1 (`lib/notes.ts`); the layout redirect alone does not stop a page from rendering
 - [ ] The check happens server-side (disabling JS does not expose the workspace)
 - [ ] Sign-out clears the session cookie
 
@@ -267,7 +272,7 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 
 ### Screen: `/sign-in`
 - Layout: centered card (max-w-sm) on `--color-bg`; app name "Notera Notes" above the card.
-- Fields: email (`type=email`, autocomplete `username`), password (`type=password`, autocomplete `current-password`), submit **Sign in** (full-width, accent).
+- Fields: email (`type=email`, autocomplete `username`), password (`type=password`, autocomplete `current-password`) with a show/hide toggle — an icon-only `type="button"` (lucide `Eye` / `EyeOff`) inside the field's right edge that switches the input between `password` and `text`, default hidden, `aria-label` from `lib/copy.ts` — and submit **Sign in** (full-width, accent).
 - States: **Loading** — button shows spinner + disabled while the action runs; **Empty** — n/a (a form is its own empty state; recorded decision); **Error** — inline text under the form, exact copy: "Email or password is incorrect." for bad credentials, "Something went wrong. Try again." for any other failure.
 - Actions: submit → Server Action `signIn` → success `redirect("/notes")` / failure shows the inline error, password field cleared.
 
@@ -282,7 +287,7 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 | New note | Server Action insert → redirect `/notes/[id]` | Toast "Couldn't create the note. Try again." |
 | Click card | Navigate `/notes/[id]` | — |
 | Click tag chip | Server re-fetch filtered by tag | Error state card |
-| Sign out | Server Action → redirect `/sign-in` | Toast "Something went wrong. Try again." |
+| Sign out | Server Action → `revalidatePath` + redirect `/sign-in` | none — the redirect happens regardless, because auth-js has already cleared the local session on every error path; the error is logged server-side, not shown |
 
 ### Screen: `/notes/[id]`
 - Layout: narrow column (max-w-2xl); back link "← All notes" top; title as borderless `input` (text-2xl, semibold); `TagEditor` chips row; content `textarea` (min-h 60dvh, borderless); footer row: muted "Saved"/"Saving…" indicator left, **Delete** (danger, ghost) right.
@@ -316,7 +321,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 ### Numbered rules
 - **B1 — One mutation pipeline.** Every write goes: local state → debounced Server Action → Supabase → `revalidatePath`. No component talks to Supabase directly for writes; no write bypasses the action files.
 - **B2 — Local editor state.** `NoteEditor` holds title/content/tags in `useState`; a 300 ms debounce pushes changes; a `maxWait` of 5 s forces a save during continuous typing. In-memory text is never rolled back on failure.
-- **B3 — Server-side auth only, three fences.** Access decisions use `supabase.auth.getUser()` on the server; `getSession()` for access decisions is prohibited. Fence 1 (authoritative): the DAL `lib/notes.ts` calls `getUser()` on every operation and throws/redirects without a user — no data moves without it. Fence 2: `app/notes/layout.tsx` calls `getUser()` and redirects before rendering (layouts do not re-run on client navigation, hence fence 1). Fence 3 (convenience only, NEVER the gate): `middleware.ts` refreshes the session cookie and does a cheap early redirect.
+- **B3 — Server-side auth only, three fences.** Access decisions use `supabase.auth.getUser()` on the server; `getSession()` for access decisions is prohibited. Fence 1 (authoritative): the DAL `lib/notes.ts` calls `getUser()` on every operation and throws/redirects without a user — no data moves without it. Fence 2: `app/notes/layout.tsx` calls `getUser()` and issues the redirect — it does **not** suppress the render: a redirecting layout still lets the sibling page render into the RSC payload (measured on Next 16.3.1), and layouts do not re-run on client navigation. No-render is therefore owned by fence 1. Fence 3 (convenience only, NEVER the gate): `proxy.ts` — Next's current name for `middleware.ts` — refreshes the session cookie and does a cheap early redirect.
 - **B3b — DAL chokepoint.** No page, component or Server Action queries the `notes` table directly; everything imports from `lib/notes.ts` (marked `server-only`). Server Actions never trust a client-supplied user id — the DAL derives it from `getUser()`.
 - **B4 — Explicit ownership filter.** Every notes query inside the DAL includes `.eq('user_id', user.id)` even though RLS also enforces it.
 - **B5 — Copy from one home.** Every user-visible string lives in `lib/copy.ts`; numbers in copy are derived from `LIMITS`.
@@ -326,8 +331,9 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 
 ### Auth flows
 **Sign-in:** `/sign-in` form → Server Action `signIn(formData)` → `createServerClient` → `auth.signInWithPassword({email, password})` → on error return `{ error: copy.auth.badCredentials }` → on success `redirect("/notes")`. Cookies are set by the `@supabase/ssr` client.
-**Session refresh:** `middleware.ts` runs on every request, calls the `lib/supabase/middleware.ts` helper to refresh the auth cookie, and redirects `/notes*` → `/sign-in` when `getUser()` returns null (and `/sign-in` → `/notes` when it doesn't).
-**Guard:** three fences per rule B3 — DAL (authoritative), `app/notes/layout.tsx` (render guard), middleware (cookie refresh + early redirect, never trusted as the gate).
+**Session refresh:** `proxy.ts` runs on every request, calls the `lib/supabase/proxy.ts` helper to refresh the auth cookie, and redirects `/notes*` → `/sign-in` when `getUser()` returns null (and `/sign-in` → `/notes` when it doesn't). A redirect built there copies the refreshed cookies and no-store headers onto the new response, or the refresh is lost.
+**Refresh happens in exactly one place.** A refresh rotates the refresh token, so the new pair must reach the browser; only the proxy owns a writable response. Every client from `lib/supabase/server.ts` therefore declines the rotation call and only validates the token it was given — a rotation performed where cookies cannot be written spends the browser's refresh token and signs the user out on the next request (found by the Phase 3 token-refresh probe).
+**Guard:** three fences per rule B3 — DAL (authoritative), `app/notes/layout.tsx` (render guard), `proxy.ts` (cookie refresh + early redirect, never trusted as the gate).
 **Sign-out:** header button → Server Action `signOut()` → `auth.signOut()` → `redirect("/sign-in")`.
 **Registration / password reset:** none — accounts are created in the Supabase dashboard (Block A Decision).
 **Rate limiting:** Supabase Auth's built-in limits are accepted as-is; no custom throttling (recorded decision, single-developer test accounts).
@@ -346,7 +352,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 
 **Auth & session**
 1. Expired session while editing → next autosave gets 401 → banner "Your session expired." + **Sign in** link; typed text stays on screen. Trigger: cookie TTL passes mid-edit.
-2. Signed-out user pastes `/notes` URL → middleware + layout redirect to `/sign-in`; no note bytes rendered.
+2. Signed-out user pastes `/notes` URL → `proxy.ts` + layout redirect to `/sign-in`; no note bytes, because the DAL returns none without a user (the layout redirect issues the bounce, it does not suppress the render).
 3. Signed-in user opens `/sign-in` → redirect `/notes`.
 4. Cookies cleared in DevTools, then any click → next server request treats as signed-out → redirect.
 5. Sign-out in tab A while tab B edits → tab B's next save 401 → case 1 behavior.
@@ -391,6 +397,6 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 3. Every acceptance checkbox in Block B passes at both 1280 and 375; nothing overflows.
 4. Zero console errors during the click-script: sign in → create → type 500 chars → add 2 tags → filter by tag → delete → sign out.
 5. `grep -ri "localStorage\|sessionStorage" app/ components/ lib/` returns nothing; `grep -ri "service_role\|SERVICE_ROLE" .` returns nothing outside docs.
-6. `grep -rn "getSession()" app/ lib/ middleware.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
+6. `grep -rn "getSession()" app/ lib/ proxy.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
 7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`).
 8. README documents: purpose, run steps, both env vars and where to find their values (Supabase dashboard → Settings → API), a screenshot of the local app, and the optional tasks with their branch/PR names.

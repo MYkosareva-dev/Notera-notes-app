@@ -31,8 +31,13 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
    (1) The data-access layer `lib/notes.ts` calls `getUser()` on every operation
    and refuses to run without a user — this is the authoritative gate.
    (2) The server layout `app/notes/layout.tsx` checks `getUser()` and redirects.
-   (3) `middleware.ts` only refreshes the session cookie and does a cheap early
-   redirect — middleware is NEVER trusted as the gate.
+   (3) `proxy.ts` (Next's current name for `middleware.ts`) only refreshes the
+   session cookie and does a cheap early redirect — the interceptor is NEVER
+   trusted as the gate. It is also the ONLY place ON THE SERVER that may refresh a
+   token: refreshing rotates the refresh token, and a rotation performed where
+   cookies cannot be written (any Server Component) spends the browser's token and
+   logs the user out. Clients from `lib/supabase/server.ts` validate, never refresh;
+   a browser client may refresh, since a browser can persist the rotated cookies.
 3b. **All notes data access goes through `lib/notes.ts`** (marked `server-only`).
    No page, component or Server Action queries the `notes` table directly.
    Server Actions never accept or trust a user id from the client — the DAL

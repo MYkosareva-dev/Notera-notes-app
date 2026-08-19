@@ -6,6 +6,8 @@ the pull request, merges, and only then starts the next phase — in a **fresh
 Claude Code session** (Sprint 2 workflow habit).
 
 ## The gate ritual (same at the end of every phase)
+0. Agent: `npm run typecheck && npm run build` — both clean before the commit. The
+   build is not optional: a mistyped `server-only` import is silently inert without it.
 1. Agent: commits, prints a summary of changed files, and **stops**.
 2. Owner runs, in this order:
    - `/review-auth` — the project's own auth-mistake scan (in `.claude/commands/`)
@@ -41,6 +43,7 @@ console errors.
 
 ## Phase 2 — Supabase wiring  (branch `feat/supabase-setup`)
 Build: `lib/supabase/server.ts`, `lib/supabase/client.ts`, `lib/supabase/middleware.ts`
+(renamed `lib/supabase/proxy.ts` in Phase 3 with the entry-file rename)
 per the Context7-fetched docs in `docs/`; `supabase/schema.sql` checked in
 (already executed in the SQL Editor by the owner); env vars read from `.env.local`.
 No UI changes.

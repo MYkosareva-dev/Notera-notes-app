@@ -1,0 +1,40 @@
+"use client";
+
+import { useTransition } from "react";
+import type { FormEvent } from "react";
+
+import { signOut } from "@/app/notes/actions";
+import { copy } from "@/lib/copy";
+
+/**
+ * Sign-out control for the Header (SPEC Block E — /notes).
+ *
+ * A submit, never a link: invoking a Server Action is always a POST, so nothing a
+ * third party can trigger — an `<img>` or a prefetch — can sign the user out.
+ * A client component only for the pending state; the sign-out itself happens
+ * entirely in the `signOut` Server Action, which always redirects to /sign-in and
+ * therefore returns nothing for this component to handle.
+ */
+export function SignOutButton() {
+  const [isPending, startTransition] = useTransition();
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    startTransition(async () => {
+      await signOut();
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <button
+        type="submit"
+        disabled={isPending}
+        className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-60"
+      >
+        {copy.auth.signOut}
+      </button>
+    </form>
+  );
+}

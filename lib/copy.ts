@@ -18,8 +18,32 @@ export const copy = {
     allNotes: "← All notes",
   },
 
+  // Sign-in screen and the sign-out control (SPEC Block E + Block F). The three
+  // failure strings are ours on purpose: Supabase's raw error text varies with
+  // project config and can distinguish "wrong password" from "no such account",
+  // which is an account-enumeration leak.
+  auth: {
+    emailLabel: "Email",
+    passwordLabel: "Password",
+    submit: "Sign in",
+    // aria-labels for the show/hide control on the password field. The button has
+    // no text of its own, so these are its accessible name.
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+    submitPending: "Signing in…",
+    signOut: "Sign out",
+    invalidEmail: "Enter a valid email address.",
+    missingPassword: "Enter your password.",
+    badCredentials: "Email or password is incorrect.",
+    // SPEC Block G case 6 — Supabase Auth's built-in rate limit, which this
+    // project accepts as-is rather than adding throttling of its own.
+    rateLimited: "Too many attempts. Wait a minute and try again.",
+  },
+
   errors: {
-    // SPEC Block E: the generic failure message, shown by app/error.tsx.
+    // SPEC Block E: the generic failure message. Shown by app/error.tsx, and
+    // returned by the signIn action for any failure that is neither bad
+    // credentials nor the rate limit.
     generic: "Something went wrong. Try again.",
   },
 
@@ -49,8 +73,9 @@ export const copy = {
     tooManyNotes: `You've reached the limit of ${formatNumber(LIMITS.notesPerUser)} notes.`,
   },
 
-  // Temporary strings for the Phase 1 scaffold. Each one disappears when the
-  // real screen lands (sign-in in Phase 3, the editor in Phase 4).
+  // Temporary string for the Phase 1 scaffold. The sign-in screen landed in
+  // Phase 3 and no longer uses it; the last caller is the note editor route,
+  // which replaces it in Phase 4.
   placeholder: {
     comingSoon: "This screen arrives in a later build phase.",
   },
