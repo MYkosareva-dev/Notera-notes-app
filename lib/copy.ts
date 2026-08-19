@@ -97,6 +97,13 @@ export const copy = {
     save: {
       retrying: "Couldn't save. Retrying…",
       failed: "Couldn't save your changes.",
+      // SPEC rule B8's third suspended state: the server REFUSED the patch rather
+      // than failing to receive it, so "Retrying…" would be a lie — the same bytes
+      // will be refused again. It names tags because they are the only field that can
+      // arrive invalid from STORED data (the editor blocks an over-long title or body
+      // at the keystroke, so those only reach here from a forged POST), which makes
+      // "check its tags" the one actionable sentence available.
+      rejected: "Couldn't save this note. Check its tags and try again.",
       retryNow: "Retry now",
       sessionExpired: "Your session expired.",
       signIn: SIGN_IN_LABEL,

@@ -32,11 +32,20 @@ export function NoteCardSkeleton() {
   );
 }
 
-/** Loading state for the notes list (SPEC Block E: 1 column at 375, 3 at 1280). */
+/**
+ * Loading state for the notes list.
+ *
+ * The column counts MUST track app/notes/page.tsx exactly — 1 / 2 at `md` / 3 at `xl`.
+ * They are `xl` and not `lg` because the loaded grid shares its row with `TagFilter`'s
+ * sidebar and is measured against the width that leaves (SPEC Block E). This skeleton
+ * kept `lg:grid-cols-3` when the page moved to `xl`, so between 1024 and 1279 px three
+ * placeholder columns handed over to two real ones — the exact jump the note below is
+ * about. Caught at the Phase 6 full-review gate.
+ */
 export function NotesGridSkeleton() {
   return (
     <div role="status" aria-label={copy.common.loading}>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: CARD_SKELETON_COUNT }, (_, index) => (
           <NoteCardSkeleton key={index} />
         ))}

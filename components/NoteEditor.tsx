@@ -82,8 +82,24 @@ const RETRY_BACKOFF_MS = [1_000, 2_000, 4_000] as const;
 const TITLE_LIMIT_TOAST_KEY = "title-limit";
 const CONTENT_LIMIT_TOAST_KEY = "content-limit";
 
-/** Why saving stopped. Both cases are user-driven from here on (rule B8, G-1). */
-type SuspendedReason = "retriesSpent" | "sessionExpired";
+/**
+ * Why saving stopped. All three are user-driven from here on (rule B8, G-1).
+ *
+ * `rejected` is the case tags introduced. The other two are about the request not
+ * getting through; this one is the server REFUSING the payload — `updateNote` re-checks
+ * the Block F tag rules because a Server Action is a public POST, and it throws
+ * `invalid` for a tag array it will not store. Before this existed, `invalid` raised a
+ * one-shot "Something went wrong." and left saving ARMED, so every subsequent keystroke
+ * re-derived the same rejected patch and re-sent it — one POST and one server-side
+ * error per debounce window, for as long as the note stayed open, with the title and
+ * content typed alongside it refused in the same breath (the patch is refused whole).
+ *
+ * Reachable without a forged request: `LIMITS.tagMax` has no database counterpart, so a
+ * note seeded through the SQL Editor (SPEC Block C ships a seed block; G-18 treats
+ * direct inserts as a real path) can hold a tag `isValidTag` rejects. Open that note,
+ * touch anything, and it was unsaveable forever.
+ */
+type SuspendedReason = "retriesSpent" | "sessionExpired" | "rejected";
 
 /**
  * Module scope, not a closure: it touches nothing but its argument, and defining it per
@@ -101,7 +117,21 @@ function clearTimer(timer: { current: number | null }) {
 interface Draft {
   title: string;
   content: string;
-  tags: string[];
+  /**
+   * READONLY, and the compiler is the point.
+   *
+   * `sent = { ...draft.current }` is a shallow copy, so the moment `Draft` gained a
+   * reference-typed field `saved.current.tags` and `draft.current.tags` became the
+   * same array after every successful save (and at mount, where both are `note.tags`).
+   * A single in-place `push`/`splice` anywhere would then mutate BOTH, `sameTags`
+   * would return true, `diff` would return null, and the edit would never be
+   * saved — with the indicator still reading "Saved". That is the worst failure this
+   * editor can have, and nothing else in the file would notice it.
+   *
+   * `readonly` makes that unwriteable rather than merely unwritten. `diff` below hands
+   * out a fresh array, so a patch on the wire can never alias either ref either.
+   */
+  tags: readonly string[];
 }
 
 /**
@@ -126,7 +156,10 @@ function diff(draft: Draft, saved: Draft): NotePatch | null {
     patch.content = draft.content;
   }
   if (!sameTags(draft.tags, saved.tags)) {
-    patch.tags = draft.tags;
+    // A COPY, not the ref: `NotePatch.tags` is mutable `string[]` (it crosses the wire
+    // to a Server Action), and handing out the draft's own array would give the patch
+    // a live view of editor state.
+    patch.tags = [...draft.tags];
   }
   return Object.keys(patch).length === 0 ? null : patch;
 }
@@ -208,6 +241,10 @@ export function NoteEditor({ note }: { note: NoteView }) {
         notice.showSessionExpired();
         return;
       }
+      if (reason === "rejected") {
+        notice.showRejected(() => retryNow.current());
+        return;
+      }
       // Through the ref: the notice is built before `attemptSave` exists in this scope,
       // and the closure it hands to the toast is never replaced once shown (Toast
       // compares actions by label, so an identical re-show is a no-op). Inlining
@@ -248,11 +285,25 @@ export function NoteEditor({ note }: { note: NoteView }) {
         return;
       }
 
-      // What is left: `invalid` and `limitReached`, which the editor blocks before they
-      // can happen — and `unavailable`, which only reaches here from the DELETE path
-      // (autosave handles it with the ladder before ever calling this). All three are
-      // one-shot: there is nothing for the user to retry that the Delete button does not
-      // already offer.
+      if (failure === "invalid") {
+        // The server refused the payload. Stop saving and hand the next move over —
+        // retrying unchanged bytes would fail identically, forever. The notice carries
+        // **Retry now**, which is what the user needs once they have removed the chip
+        // the server would not take: saving stays suspended until something asks for
+        // it, so a corrected note with no button would sit there unsaved.
+        //
+        // NOTE this is reached from the DELETE path too, where `invalid` is not
+        // producible (deleteNote validates only the id's shape and answers `notFound`).
+        // If that ever changes, suspending the editor for a failed delete would be the
+        // wrong response and this branch needs splitting.
+        suspend("rejected");
+        return;
+      }
+
+      // What is left: `limitReached`, which only `createNote` can raise, and
+      // `unavailable`, which reaches here from the DELETE path alone (autosave answers
+      // it with the ladder before ever calling this). Both are one-shot: there is
+      // nothing to retry that the Delete button does not already offer.
       notice.showGeneric();
     },
     [clearSaveTimers, notice, router, suspend],

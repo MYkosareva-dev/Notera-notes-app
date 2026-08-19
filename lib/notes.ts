@@ -5,7 +5,7 @@ import type { AuthError, PostgrestError } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { LIMITS } from "@/lib/types";
 import type { NoteFailure, NotePatch, NoteView } from "@/lib/types";
-import { hasTag, isUuid, isValidTag } from "@/lib/validation";
+import { hasTag, isUuid, isValidTag, normalizeTag } from "@/lib/validation";
 
 /**
  * The notes data-access layer — FENCE 1 of CLAUDE.md rule 3 / SPEC rule B3, and the
@@ -39,6 +39,14 @@ import { hasTag, isUuid, isValidTag } from "@/lib/validation";
 
 /** Columns handed out as `NoteView` — `user_id` is deliberately not among them. */
 const NOTE_COLUMNS = "id, title, content, tags, created_at, updated_at";
+
+/**
+ * C0 controls, which `trim()` leaves in place (it strips whitespace, and U+0000 is not
+ * whitespace). No tag the app writes can contain one — `isValidTag` requires the tag to
+ * equal its trimmed form but says nothing about controls, so this is the read path's
+ * own guard rather than a restatement of a write rule. See `listNotes`.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 /** Postgres/PostgREST codes that mean "no such row here", not "the query broke". */
 const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
@@ -217,10 +225,17 @@ function tagLiteral(tag: string): string {
  * it — nothing in `tag` can widen `.eq("user_id", ...)`, because they are two separate
  * entries in the query string.
  *
- * An over-length tag is refused without a round-trip, the same courtesy `requireNoteId`
- * does for a malformed uuid: `LIMITS.tagMax` is the write-side cap, so no stored tag can
- * be longer and the honest answer is an empty list. It is not a security check — what
- * scopes the rows is the ownership filter plus RLS.
+ * A tag that no stored tag could equal is refused without a round-trip, the same
+ * courtesy `requireNoteId` does for a malformed uuid. Two cases: longer than
+ * `LIMITS.tagMax`, which is the write-side cap; and holding a C0 control character,
+ * which `normalizeTag`'s `trim()` does NOT strip — U+0000 in particular survives it,
+ * and Postgres `text` cannot hold a NUL at all, so the array literal is truncated at
+ * the transport layer and comes back as `22P02`. This file maps that to `notFound`, so
+ * `/notes?tag=%00` rendered "Couldn't load your notes." with a **Try again** that could
+ * only fail again. Quoting cannot fix that one — the byte never reaches the quotes —
+ * so the guard is where it belongs. Neither case is a security check: what scopes the
+ * rows is the ownership filter plus RLS. Both are simply "no note can carry this",
+ * whose honest answer is an empty list.
  *
  * The `.limit()` is `LIMITS.notesPerUser`: the row cap rule B7 enforces on write,
  * so it is also the largest honest page size (rule 11 — the number is imported).
@@ -236,8 +251,8 @@ function tagLiteral(tag: string): string {
 export async function listNotes(tag?: string): Promise<NoteView[]> {
   const { supabase, user } = await requireUser();
 
-  const wanted = tag === undefined ? "" : tag.trim();
-  if (wanted.length > LIMITS.tagMax) {
+  const wanted = normalizeTag(tag ?? "");
+  if (wanted.length > LIMITS.tagMax || CONTROL_CHARACTERS.test(wanted)) {
     return [];
   }
 

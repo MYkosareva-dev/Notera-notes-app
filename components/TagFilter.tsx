@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { copy } from "@/lib/copy";
 import { ROUTES } from "@/lib/routes";
+import { TAG_CHIP_SHAPE } from "@/lib/tagChip";
 
 /**
  * The tag filter (SPEC US5 step 3, Block E — /notes).
@@ -30,24 +31,44 @@ import { ROUTES } from "@/lib/routes";
  * wrong one: two copies of every link means a screen reader announcing the filter
  * twice, and two nav landmarks with the same name.
  *
- * The one breakpoint-aware class inside this file is `md:w-full` on the All tags item,
- * which makes it occupy its whole line so the tags start on the next one — the
- * "button on top, chips below" the sidebar needs, without a second container. Placement
- * (which side, how wide, what gap) is the PAGE's business and arrives as `className`;
- * this component decides nothing about where it sits.
+ * The breakpoint-aware classes inside this file are `md:w-full` (plus `md:mb-1` and
+ * `md:text-center`) on the All tags item, which make it occupy its whole line so the
+ * tags start on the next one — the "button on top, chips below" the sidebar needs,
+ * without a second container. Everything ELSE about placement — which side, how wide,
+ * what gap — is the page's business and arrives as `className`.
+ *
+ * So the honest boundary is narrower than "decides nothing about where it sits": this
+ * component owns the INTERNAL arrangement at each breakpoint and the page owns the
+ * external one. A caller wanting the cloud arrangement at desktop width cannot get it
+ * from `className` alone. One caller exists, `md` is where SPEC Block E puts the seam,
+ * and an `orientation` prop for a second caller that does not exist would be
+ * speculative — but the constraint is real and is written down here rather than
+ * disclaimed (rule 18 covers docblocks too).
  *
  * `active` is the tag currently in the query string, or null for All tags. Comparison
  * is EXACT, matching `listTags` and the case-sensitive `@>` behind it: if a user has
  * both `Client` and `client`, those are two chips selecting two different sets, and
  * only the one actually in the URL is lit.
  *
- * The whole thing renders nothing when the user has no tags — an "All tags" chip on its
- * own would be a control that filters nothing, beside a grid it never changes.
+ * The whole thing renders nothing when the user has no tags AND no filter is active —
+ * an "All tags" chip on its own would be a control that filters nothing, beside a grid
+ * it never changes. `active !== null` is the exception, and it is not a corner case:
+ * open `/notes?tag=client`, remove that tag from the last note carrying it, and the
+ * user is on a filtered view with an empty result whose ONLY way back is the All tags
+ * button. Suppressing the row there left "No notes with this tag." — a card with no
+ * action — above an empty grid, with the header's app name a plain `<h1>` and no route
+ * home short of editing the URL or creating a throwaway note. Found at the Phase 6
+ * full-review gate; both docblocks here already asserted the invariant this now keeps.
  */
 
-/** Shared chip geometry; only the colours differ between the two states. */
-const CHIP =
-  "block max-w-full truncate rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+/**
+ * The filter's chip: the app-wide shape (lib/tagChip.ts) plus a border, this row's
+ * padding, and a two-state palette. Deliberately NOT `TAG_CHIP` — these are links with
+ * a selected state, so the idle form stays neutral; an accent-tinted idle chip beside
+ * an accent-filled selected one reads as two selected states. SPEC Block E records
+ * that split.
+ */
+const CHIP = `${TAG_CHIP_SHAPE} block border px-3 py-1.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`;
 const CHIP_ACTIVE = "border-accent bg-accent text-white";
 const CHIP_IDLE =
   "border-border bg-surface text-text-muted hover:border-text/15 hover:text-text";
@@ -60,7 +81,7 @@ interface TagFilterProps {
 }
 
 export function TagFilter({ tags, active, className }: TagFilterProps) {
-  if (tags.length === 0) {
+  if (tags.length === 0 && active === null) {
     return null;
   }
 
@@ -83,11 +104,13 @@ export function TagFilter({ tags, active, className }: TagFilterProps) {
           </Link>
         </li>
         {tags.map((tag) => (
-          // `min-w-0` so a 24-character tag truncates inside a 224 px column instead of
-          // widening it; the chip is a link, so the full text is still its accessible
-          // name and its title on hover.
+          // `min-w-0` so a 24-character tag truncates inside a 224 px column instead
+          // of widening it. The full text stays reachable both ways: it is the link's
+          // accessible name, and `title` puts it in a tooltip for a sighted mouse user
+          // who would otherwise see a clipped word with no way to read the rest.
           <li key={tag} className="min-w-0">
             <Link
+              title={tag}
               // An object href, so Next encodes the value: a tag containing `&`, `#` or
               // a space must not be able to add a second query parameter.
               href={{ pathname: ROUTES.notes, query: { tag } }}

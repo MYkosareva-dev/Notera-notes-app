@@ -8,6 +8,7 @@ import { NoteCard } from "@/components/NoteCard";
 import { SignOutButton } from "@/components/SignOutButton";
 import { TagFilter } from "@/components/TagFilter";
 import { copy } from "@/lib/copy";
+import { normalizeTag } from "@/lib/validation";
 import { isNotesError, listNotes, listTags } from "@/lib/notes";
 import { ROUTES } from "@/lib/routes";
 import type { NoteView } from "@/lib/types";
@@ -47,19 +48,36 @@ export default async function NotesPage({
   // filter is what the screen models, so the first entry wins rather than the request
   // being an error — and an empty or whitespace-only value is simply no filter, the
   // same state the All tags button produces.
+  //
+  // `normalizeTag`, not a bare `.trim()`: this is the third input path for a tag (the
+  // editor and the DAL are the others) and lib/validation.ts is the stated one home for
+  // the rule, so the day it gains a step, the filter cannot stop matching the tags the
+  // write path stored (rule 11).
   const requested = Array.isArray(params.tag) ? params.tag[0] : params.tag;
-  const trimmed = requested?.trim() ?? "";
+  const trimmed = normalizeTag(requested ?? "");
   const activeTag = trimmed.length > 0 ? trimmed : null;
 
   let notes: NoteView[] | null = null;
   let tags: string[] = [];
 
   try {
-    // Sequential rather than Promise.all: both of these throw on failure, and a
-    // rejected second promise nobody awaited is an unhandled rejection. The saving is
-    // one round-trip on a page that is already doing two.
-    notes = await listNotes(activeTag ?? undefined);
-    tags = await listTags();
+    // Concurrent. This used to be two sequential awaits, justified by "a rejected
+    // second promise nobody awaited is an unhandled rejection" — which is false of
+    // `Promise.all`: it attaches a handler to every promise it is given, synchronously,
+    // so the loser's rejection is handled and nothing escapes. (That hazard belongs to
+    // the other shape, `const a = f(); const b = g(); await a; await b;`.) Disproven at
+    // the Phase 6 full-review gate and measured: the sequencing cost one full Supabase
+    // round-trip, ~35 ms from this machine, on every render of the app's busiest route.
+    //
+    // The two `getUser()` calls inside still collapse to one Auth request — Next's
+    // dedupe caches the promise, not the settled response, so running them at the same
+    // time does not defeat it.
+    const [rows, inUse] = await Promise.all([
+      listNotes(activeTag ?? undefined),
+      listTags(),
+    ]);
+    notes = rows;
+    tags = inUse;
   } catch (error) {
     if (isNotesError(error) && error.failure === "sessionExpired") {
       // Thrown out of the catch, not swallowed by it: redirect() works by throwing.

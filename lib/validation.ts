@@ -82,3 +82,23 @@ export function isSameTag(left: string, right: string): boolean {
 export function hasTag(tags: readonly string[], tag: string): boolean {
   return tags.some((existing) => isSameTag(existing, tag));
 }
+
+/**
+ * Drops EXACT duplicates, keeping first-seen order. A render-time safety net, not a
+ * rule — `updateNote` already refuses a duplicate under the looser case-insensitive
+ * test, so nothing the app writes can need this.
+ *
+ * What can: a row inserted straight into the SQL Editor. SPEC Block C ships a seed
+ * block and G-18 treats direct inserts as a real path, so `{client,client}` is
+ * reachable — and every chip list keys by the tag text, which would make React log a
+ * duplicate-key warning and fail Block H check 4 ("zero console errors"). One
+ * malformed row would fail a Definition-of-Done check for a reason with nothing to do
+ * with the code under test.
+ *
+ * EXACT, deliberately, not `isSameTag`: an exact duplicate is the only thing that
+ * breaks a key, and folding `Client` into `client` here would silently hide a tag the
+ * database really holds. This filters what React cannot render; it does not tidy data.
+ */
+export function dedupeTags(tags: readonly string[]): string[] {
+  return [...new Set(tags)];
+}
