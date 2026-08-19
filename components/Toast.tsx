@@ -217,18 +217,23 @@ export function Toaster() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-card border bg-surface px-4 py-3 text-sm shadow-card ${
+          className={`pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-card border bg-surface px-4 py-3 text-sm shadow-card ${
             toast.variant === "danger"
               ? "border-danger text-danger"
               : "border-border text-text"
           }`}
         >
           <span className="min-w-0 flex-1 wrap-break-word">{toast.message}</span>
+          {/* A filled button, never a text link. This is the only way out of the state
+              the notice describes (rule B8's Retry now, G-1's Sign in), and a link-styled
+              action was missed entirely on first encounter. Accent rather than danger
+              fill even inside a danger notice: the action is the recovery, and in this
+              app red means destructive (Delete). */}
           {toast.action === undefined ? null : (
             <button
               type="button"
               onClick={toast.action.onClick}
-              className="shrink-0 font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {toast.action.label}
             </button>

@@ -302,7 +302,7 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 | Component | Base | Notes |
 |---|---|---|
 | Header, EmptyState, ConfirmDialog | carried from Notera | restyle only |
-| Toast | carried from Notera, extended in Phase 4 | `showToast(message, { variant, duration, action, key })`. `duration: "persistent"` **is** rule B8's banner and edge case G-1's session notice — one queue, so two notices cannot overlap; `action` carries **Retry now** / **Sign in**; `key` dedupes, so the retry ladder updates one notice instead of stacking four and a cap message toasts once. No separate `Banner` component: this table sanctions none, and rule 17 makes that a prohibition. |
+| Toast | carried from Notera, extended in Phase 4 | `showToast(message, { variant, duration, action, key })`. `duration: "persistent"` **is** rule B8's banner and edge case G-1's session notice — one queue, so two notices cannot overlap; `action` carries **Retry now** / **Sign in**, rendered as a FILLED accent button, never a text link (a link-styled action was missed entirely on first encounter, and it is the only way out of the state the notice describes; accent rather than danger fill even inside a danger notice, because in this app red means destructive); `key` dedupes, so the retry ladder updates one notice instead of stacking four and a cap message toasts once. No separate `Banner` component: this table sanctions none, and rule 17 makes that a prohibition. |
 | TagEditor | Notera `LabelEditor` descendant | Enter commits, × removes, cap per `LIMITS.tagsPerNote` |
 | NoteCard, TagFilter, Skeletons, SignInForm, NoteEditor | new | per specs above |
 
