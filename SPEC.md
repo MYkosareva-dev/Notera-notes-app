@@ -198,8 +198,15 @@ create policy "notes_update_own" on public.notes
 create policy "notes_delete_own" on public.notes
   for delete using (auth.uid() = user_id);
 
--- List screen sorts by newest first and always filters by owner.
+-- Both list orderings, owner-scoped. The screen walks (user_id, updated_at desc) —
+-- updated_at is the timestamp each card prints (Block E). The created_at pair predates
+-- it and is kept for an ordering by creation time, which nothing does today.
 create index notes_user_created_idx on public.notes (user_id, created_at desc);
+create index notes_user_updated_idx on public.notes (user_id, updated_at desc);
+
+-- The tag filter is a containment predicate (tags @> ARRAY['client']). GIN is the
+-- index type that answers @> on an array column; a btree cannot.
+create index notes_tags_idx on public.notes using gin (tags);
 
 -- Auto-touch updated_at on every update.
 create or replace function public.set_updated_at()
@@ -211,10 +218,11 @@ create trigger notes_set_updated_at
   for each row execute function public.set_updated_at();
 ```
 
-> Decision (Phase 4 gate): the list is ordered by **`updated_at desc`**, not `created_at desc`, so the order follows the timestamp the card prints (Block E). Sorting by one column while displaying another produced a list whose order contradicted its own labels — edit an old note and it stayed at the bottom saying "2 minutes ago". The index above is still `(user_id, created_at desc)`, so the query sorts instead of walking the index; at `LIMITS.notesPerUser` rows that costs nothing, and `(user_id, updated_at desc)` joins the Phase 6 schema amendment batch rather than being slipped in as an un-run DDL edit (rule 8).
+> Decision (Phase 4 gate): the list is ordered by **`updated_at desc`**, not `created_at desc`, so the order follows the timestamp the card prints (Block E). Sorting by one column while displaying another produced a list whose order contradicted its own labels — edit an old note and it stayed at the bottom saying "2 minutes ago". Through Phase 5 the only index was `(user_id, created_at desc)`, so the query sorted instead of walking an index; the matching `(user_id, updated_at desc)` was deliberately left to the Phase 6 amendment batch rather than slipped in as an un-run DDL edit (rule 8). **It shipped in Phase 6 — see the index decision below.**
 > Decision: RLS is enabled even though the assignment only demands query-level filtering. RLS is the server-enforced second fence: even a buggy query cannot leak foreign rows. Application queries STILL filter by `user_id` explicitly (rule B4) — defense in depth, and the explicit filter uses the index.
 > Decision: tags are a `text[]` column, not a join table. One user's tags never interact with another's, cardinality is tiny (≤10), and the tag filter is a single `contains` query. A join table would double the RLS surface for zero benefit at this size.
-> Decision (Phase 6): **the two indexes this schema does not have are deliberate, and this is the record of it.** `listNotes` sorts by `updated_at desc` and, when a tag is selected, adds a `tags @> ARRAY[…]` predicate; the only index here is `(user_id, created_at desc)`, so both are answered by sorting and re-checking the owner's rows rather than by an index walk. The matching pair would be `(user_id, updated_at desc)` and `using gin (tags)`. Neither ships, for a reason and not by omission: `LIMITS.notesPerUser` caps a user at 1,000 rows and the owner filter cuts to those first, so the work saved is unmeasurable — while a GIN index is paid on **every save**, and this app saves on a 300 ms debounce while the user types. If the cap ever rises, both indexes come back with it. Also true, and the reason this is a decision rather than a TODO: the SQL in this block has already been executed, so adding DDL here without a SQL Editor re-run would make `supabase/schema.sql` a description of a database that does not exist (rule 8).
+> Decision (Phase 6, owner-run): **`listNotes`'s two access paths now each have their index.** The query orders by `updated_at desc` (Phase 4's decision, above) and, when a chip is selected, adds `tags @> ARRAY[…]`; through Phase 5 both were answered by scanning and sorting the owner's rows. `notes_user_updated_idx` is what the ordering walks, and `notes_tags_idx` is a **GIN** index because `@>` on an array is not a btree operation — without it the containment predicate is re-checked row by row no matter how selective the tag is. Both were executed in the SQL Editor by the owner at the Phase 6 gate and are written here in the same change (rule 8), which closes two of the four amendments parked at the Phase 2 gate.
+> The honest cost, recorded so nobody has to rediscover it: a GIN index is maintained on **every write**, and this app writes on a 300 ms autosave debounce while the user types. At `LIMITS.notesPerUser` = 1,000 rows neither index earns much — the owner filter alone cuts to a tiny set — so this is the shape being right rather than a measured speed-up, and the write cost is the price of that. `notes_user_created_idx` is kept even though no query orders by `created_at` today: dropping it is another DDL run for a few kilobytes, and it is the index a "newest first" sort would want if one is ever added. A drop is a Phase 7 candidate, not a silent edit.
 
 ### Seed data (run AFTER creating the two test accounts; replace the UUIDs with the real ones from Authentication → Users)
 ```sql

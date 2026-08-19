@@ -227,11 +227,11 @@ function tagLiteral(tag: string): string {
  *
  * Ordered by `updated_at desc` so the order follows the timestamp the card actually
  * prints (SPEC Block E) — sorting by `created_at` while displaying `updated_at` produced
- * a list whose order contradicted its own labels. Both that sort and the containment
- * predicate run WITHOUT a matching index (Block C ships `(user_id, created_at desc)`
- * only). That is a recorded decision in SPEC Block C, not an oversight: at
- * `LIMITS.notesPerUser` = 1,000 rows neither costs anything measurable, and DDL changes
- * go through a SQL Editor re-run (rule 8), which is the owner's to perform.
+ * a list whose order contradicted its own labels. Both access paths this function uses
+ * are indexed as of Phase 6: `notes_user_updated_idx` on `(user_id, updated_at desc)`
+ * for the ordering, and the GIN index `notes_tags_idx` for the `@>` above, which a btree
+ * cannot answer. Both are in SPEC Block C and in `supabase/schema.sql`, and both were
+ * run in the SQL Editor — the two files describe a database that exists (rule 8).
  */
 export async function listNotes(tag?: string): Promise<NoteView[]> {
   const { supabase, user } = await requireUser();
