@@ -22,7 +22,17 @@ export function SignOutButton() {
     event.preventDefault();
 
     startTransition(async () => {
-      await signOut();
+      // Swallowed deliberately, and only for the transport case: SPEC Block E's
+      // actions table says a failed sign-out shows the user nothing, because the
+      // action redirects on every path it can reach. Offline it cannot reach any of
+      // them — the session is still live and the user stays where they are. What this
+      // catch buys is that the failure is logged rather than surfacing as an unhandled
+      // rejection (and, in dev, as an error overlay). Flagged at the Phase 4 gate: a
+      // sign-out that silently does nothing is arguably a rule-13 case, but changing
+      // it means changing that SPEC decision first.
+      await signOut().catch((error: unknown) => {
+        console.error("[signOut] the action never ran", error);
+      });
     });
   }
 

@@ -6,6 +6,7 @@ import { LoaderCircle, Plus } from "lucide-react";
 
 import { createNote } from "@/app/notes/actions";
 import { useToast } from "@/components/Toast";
+import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 
 /**
@@ -29,7 +30,10 @@ export function NewNoteButton() {
     event.preventDefault();
 
     startTransition(async () => {
-      const result = await createNote();
+      // callAction: offline, the action never runs and the call rejects rather than
+      // returning a result, which would leave the click with no visible outcome at
+      // all (SPEC Block E promises a toast on failure).
+      const result = await callAction(createNote);
 
       if (result?.ok === false) {
         // Two distinct reasons, two messages. The cap message is derived from

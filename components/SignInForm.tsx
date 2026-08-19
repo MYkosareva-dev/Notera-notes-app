@@ -81,7 +81,14 @@ export function SignInForm() {
     formData.set("password", password);
 
     startTransition(async () => {
-      const result = await signIn(formData);
+      // A rejected call means the action never ran — the browser is offline or the
+      // dev server is down. Without this the submit would end silently, with no
+      // message and no navigation. SPEC G-7's copy covers "could not sign in for a
+      // reason that is not the credentials", which is exactly this case.
+      const result = await signIn(formData).catch((error: unknown) => {
+        console.error("[signIn] the action never ran", error);
+        return { error: copy.errors.generic };
+      });
       // Reached on failure only: a successful sign-in redirects, so the call
       // navigates instead of resolving with a value — hence the optional chain.
       if (result?.error) {

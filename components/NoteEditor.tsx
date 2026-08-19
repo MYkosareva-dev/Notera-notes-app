@@ -7,10 +7,11 @@ import { Trash2 } from "lucide-react";
 import { deleteNote, saveNote } from "@/app/notes/actions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
+import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 import { ROUTES } from "@/lib/routes";
 import { LIMITS } from "@/lib/types";
-import type { NoteFailure, NotePatch, NoteView } from "@/lib/types";
+import type { ActionResult, NoteFailure, NotePatch, NoteView } from "@/lib/types";
 
 /**
  * The note editor (SPEC Block E — /notes/[id], rules B1/B2/B8, edge cases G-1,
@@ -30,11 +31,18 @@ import type { NoteFailure, NotePatch, NoteView } from "@/lib/types";
  *   guess, it is a confirmation.
  * - The user's text is never rolled back on a failure (rule B8). A failed save
  *   leaves `draft` alone and retries it; what changes is the notice on screen.
- * - Every failure the server can report gets its own behaviour: retry with backoff
- *   for a network blip, a persistent notice with **Retry now** when the retries run
- *   out, a sign-in prompt for an expired session (G-1), and a redirect when the note
- *   itself is gone (G-13). That is what the discriminated `NoteFailure` is for — a
- *   single message string could not tell these apart.
+ * - Every failure gets its own behaviour: retry with backoff for a network blip, a
+ *   persistent notice with **Retry now** when the retries run out, a sign-in prompt
+ *   for an expired session (G-1), and a redirect when the note itself is gone (G-13).
+ *   That is what the discriminated `NoteFailure` is for — a single message string
+ *   could not tell these apart. A dead network is one of those failures and reaches
+ *   here as `unavailable`, because every action call goes through `callAction`: an
+ *   action that never ran rejects rather than returning, and an `await` on it would
+ *   otherwise take the whole save engine down with it (see that file).
+ * - After the ladder is spent the engine STOPS on purpose and waits for **Retry now**.
+ *   Rule B8 ends in a user-driven affordance, so continuing to fire a save on every
+ *   keystroke against a network that is still down would be both unspecced and
+ *   invisible — the notice would sit there while attempts piled up behind it.
  * - Pending changes are flushed on unmount (G-12), so navigating away one keystroke
  *   after typing still saves.
  *
@@ -80,9 +88,14 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
-  // "saved" appears only after a confirmed round-trip (G-10). Everything else —
-  // typed but not yet sent, in flight, or failed and retrying — is "Saving…".
-  const [isSaved, setIsSaved] = useState(true);
+  /**
+   * "saved" appears only after a confirmed round-trip (G-10). "saving" covers typed
+   * but not yet sent, in flight, and waiting on a retry — all of which are real
+   * progress. "failed" exists because "Saving…" must not claim progress that has
+   * stopped: once the ladder is spent, or the session is gone, nothing is in flight
+   * and the indicator has to say so (SPEC Block E footer).
+   */
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isDeleting, startDeleting] = useTransition();
 
@@ -94,6 +107,12 @@ export function NoteEditor({ note }: { note: NoteView }) {
   const retryTimer = useRef<number | null>(null);
   const inFlight = useRef(false);
   const mounted = useRef(true);
+  /**
+   * Set when the retry ladder is spent, or when retrying cannot help (an expired
+   * session). Automatic saving stops until **Retry now** clears it — the text stays
+   * on screen and in `draft` throughout, so nothing is lost by waiting.
+   */
+  const suspended = useRef(false);
   /**
    * Set when this note is deliberately left behind — deleted, or found to be gone.
    * It stops the unmount flush from re-saving a row that should not come back and
@@ -108,6 +127,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
     }
   };
 
+  /** Stops everything pending — used when the note is abandoned (deleted or gone). */
   const clearSaveTimers = useCallback(() => {
     clearTimer(debounceTimer);
     clearTimer(maxWaitTimer);
@@ -118,7 +138,9 @@ export function NoteEditor({ note }: { note: NoteView }) {
     (failure: NoteFailure) => {
       if (failure === "sessionExpired") {
         // SPEC G-1. Persistent, because there is nothing the app can retry on the
-        // user's behalf — and their text stays on screen while they decide.
+        // user's behalf — and their text stays on screen while they decide. Saving
+        // stops too: every further attempt would fail identically and silently.
+        suspended.current = true;
         showToast(copy.notes.save.sessionExpired, {
           variant: "danger",
           duration: "persistent",
@@ -163,8 +185,15 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
       const sent: Draft = { ...draft.current };
       inFlight.current = true;
-      const result = await saveNote(note.id, patch);
-      inFlight.current = false;
+      // callAction, never a bare await: an action that never ran rejects, and a throw
+      // here would leave inFlight set forever — which is exactly how the offline bug
+      // silenced every later save (Box 3).
+      let result: ActionResult;
+      try {
+        result = await callAction(() => saveNote(note.id, patch));
+      } finally {
+        inFlight.current = false;
+      }
 
       // The component may have unmounted mid-flight (G-12's fire-and-forget case
       // included). The write still landed; there is just nobody to tell.
@@ -174,10 +203,11 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
       if (result.ok) {
         saved.current = sent;
+        suspended.current = false;
         dismissKey(SAVE_TOAST_KEY);
         // Anything typed while this was in flight is now the difference; save it.
         if (diff(draft.current, saved.current) === null) {
-          setIsSaved(true);
+          setSaveState("saved");
         } else {
           void attemptSave(0);
         }
@@ -185,13 +215,19 @@ export function NoteEditor({ note }: { note: NoteView }) {
       }
 
       if (result.failure !== "unavailable") {
+        setSaveState("failed");
         notifyFailure(result.failure);
         return;
       }
 
       const backoff = RETRY_BACKOFF_MS[attempt];
       if (backoff === undefined) {
-        // Retries exhausted: the persistent notice with Retry now (rule B8).
+        // Retries exhausted (rule B8): stop, say so, and hand the next move to the
+        // user. The draft is untouched, so Retry now resumes from the current text.
+        suspended.current = true;
+        clearTimer(debounceTimer);
+        clearTimer(maxWaitTimer);
+        setSaveState("failed");
         showToast(copy.notes.save.failed, {
           variant: "danger",
           duration: "persistent",
@@ -199,6 +235,8 @@ export function NoteEditor({ note }: { note: NoteView }) {
           action: {
             label: copy.notes.save.retryNow,
             onClick: () => {
+              suspended.current = false;
+              setSaveState("saving");
               showToast(copy.notes.save.retrying, { key: SAVE_TOAST_KEY });
               void attemptSave(0);
             },
@@ -207,6 +245,8 @@ export function NoteEditor({ note }: { note: NoteView }) {
         return;
       }
 
+      // One notice for the whole ladder (the dedupe key), shown from the first
+      // failure — not one per attempt.
       showToast(copy.notes.save.retrying, { key: SAVE_TOAST_KEY });
       retryTimer.current = window.setTimeout(() => {
         retryTimer.current = null;
@@ -218,18 +258,21 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
   /** Fires the debounce/maxWait timers' payload. */
   const flush = useCallback(() => {
-    clearSaveTimers();
+    clearTimer(debounceTimer);
+    clearTimer(maxWaitTimer);
 
-    if (abandoned.current) {
+    if (abandoned.current || suspended.current) {
       return;
     }
-    // A save is already on the wire; its completion handler picks up whatever has
-    // been typed since, so a second concurrent write is never needed.
-    if (inFlight.current) {
+    // A save is already on the wire, or a retry is already scheduled. Either one
+    // re-derives the patch from the CURRENT draft when it runs, so a second write
+    // would only duplicate it — and restarting the ladder on every keystroke is how
+    // a retry policy turns into a request loop.
+    if (inFlight.current || retryTimer.current !== null) {
       return;
     }
     void attemptSave(0);
-  }, [attemptSave, clearSaveTimers]);
+  }, [attemptSave]);
 
   /**
    * The debounce (rule B2): 300 ms of quiet sends the change, and a 5 s maxWait
@@ -237,7 +280,16 @@ export function NoteEditor({ note }: { note: NoteView }) {
    * unsaved blob.
    */
   const scheduleSave = useCallback(() => {
-    setIsSaved(false);
+    // The indicator follows the text, not the transport: unsaved is unsaved even
+    // while a notice is on screen. It only goes back to "failed" from the failure
+    // path itself.
+    setSaveState((current) => (current === "failed" ? "failed" : "saving"));
+
+    // Suspended: the persistent notice owns the next move (rule B8). A pending retry
+    // will carry this edit along, so neither case wants a fresh timer.
+    if (suspended.current || retryTimer.current !== null) {
+      return;
+    }
 
     clearTimer(debounceTimer);
     debounceTimer.current = window.setTimeout(flush, DEBOUNCE_MS);
@@ -265,7 +317,9 @@ export function NoteEditor({ note }: { note: NoteView }) {
       // afterwards (`mounted` is already false), so there is nothing to leak.
       const pending = diff(draft.current, saved.current);
       if (pending !== null) {
-        void saveNote(note.id, pending);
+        // Through callAction as well: the component is already gone, so a rejection
+        // here has nobody to report to and would surface as an unhandled rejection.
+        void callAction(() => saveNote(note.id, pending));
       }
     };
   }, [note.id]);
@@ -306,7 +360,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
     dismissKey(SAVE_TOAST_KEY);
 
     startDeleting(async () => {
-      const result = await deleteNote(note.id);
+      const result = await callAction(() => deleteNote(note.id));
 
       if (result.ok) {
         showToast(copy.notes.deleted);
@@ -353,8 +407,15 @@ export function NoteEditor({ note }: { note: NoteView }) {
       />
 
       <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
-        <p aria-live="polite" className="text-xs text-text-muted">
-          {isSaved ? copy.notes.editor.saved : copy.notes.editor.saving}
+        <p
+          aria-live="polite"
+          className={`text-xs ${saveState === "failed" ? "text-danger" : "text-text-muted"}`}
+        >
+          {saveState === "saved"
+            ? copy.notes.editor.saved
+            : saveState === "saving"
+              ? copy.notes.editor.saving
+              : copy.notes.save.failed}
         </p>
         <button
           type="button"
