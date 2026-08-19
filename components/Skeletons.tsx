@@ -21,8 +21,12 @@ export function NoteCardSkeleton() {
           does render chips, but only for a note that HAS tags, and tags are optional.
           A placeholder row here would promise one on every card and leave the ones
           without tags to jump when the real list arrives. The same reasoning is why
-          app/notes/loading.tsx reserves no space for the TagFilter row: an account
-          with no tags gets no row at all. */}
+          app/notes/loading.tsx reserves no space for the TagFilter: an account with no
+          tags gets none at all. Worth restating now that the filter is a COLUMN at
+          md+ — the handover moves the grid sideways for a tagged account, not just
+          down, and that is the accepted cost of not promising a sidebar to an account
+          that will not get one. `loading.tsx` runs before any query, so there is no
+          third option where it could know. */}
       <Bar className="mt-6 h-3 w-20" />
     </div>
   );

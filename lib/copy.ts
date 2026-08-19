@@ -116,9 +116,12 @@ export const copy = {
       addPlaceholder: "Add a tag…",
       remove: (tag: string): string => `Remove tag ${tag}`,
       filterLabel: "Filter by tag",
-      // The chip that clears the filter. Not "All notes" — that string is the
-      // editor's back link (common.allNotes) and means something else.
-      all: "All",
+      // The control that clears the filter: the first item of the mobile cloud and the
+      // button at the top of the desktop sidebar. Not "All notes" — that string is the
+      // editor's back link (common.allNotes) and means something else. Not bare "All"
+      // either: alone at the head of a sidebar it names no noun, and this one has to
+      // read as a heading for the list under it.
+      all: "All tags",
     },
 
     // The per-card "⋮" menu (SPEC Block E). `label` is the icon-only trigger's

@@ -264,11 +264,11 @@ export async function listNotes(tag?: string): Promise<NoteView[]> {
 }
 
 /**
- * Every distinct tag across the caller's own notes — the chip row of `TagFilter`
+ * Every distinct tag across the caller's own notes — the contents of `TagFilter`
  * (SPEC US5 step 3: "one chip per distinct tag").
  *
- * A second query rather than a derivation from `listNotes()`, deliberately: the chip
- * row must list ALL of the user's tags even while a filter is active, or clicking
+ * A second query rather than a derivation from `listNotes()`, deliberately: the filter
+ * must list ALL of the user's tags even while one is active, or clicking
  * `client` would leave `urgent` with no chip to click back to. Deriving the row from
  * the filtered rows would do exactly that.
  *
