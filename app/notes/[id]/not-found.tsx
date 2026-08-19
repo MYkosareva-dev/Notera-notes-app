@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { copy } from "@/lib/copy";
+import { ROUTES } from "@/lib/routes";
 
 export default function NoteNotFound() {
   return (
@@ -10,7 +11,7 @@ export default function NoteNotFound() {
           {copy.notFound.note}
         </h1>
         <Link
-          href="/notes"
+          href={ROUTES.notes}
           className="mt-6 inline-flex items-center rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium text-text transition-colors hover:border-text/15 hover:bg-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           {copy.common.allNotes}

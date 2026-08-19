@@ -271,17 +271,18 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 }
 ```
 
-Phase 5 adds five DERIVED tokens beside them in `app/globals.css` — the pressed shade of the same indigo, the palest tint of the same red, a control radius under the card radius, and the same shadow recipe at two more depths. No new hue enters the palette; they exist so a repeated value has one home (CLAUDE.md rule 11).
+Phase 5 adds six DERIVED tokens beside them in `app/globals.css` — the pressed shade of the same indigo and of the same red, the palest tint of that red, a control radius under the card radius, and the same shadow recipe at two more depths. No new hue enters the palette. A token was added where a value repeats ACROSS FILES; a few one-off alphas (`border-text/15`, `ring-danger/*`, `text-text-muted/70`) are still written inline, so this list is the shared vocabulary and not an index of every colour the app computes. Naming those is parked as post-sprint debt.
 
 ```css
-  --color-accent-strong: #4338ca;  /* accent, one step down: hover/active fill */
-  --color-danger-soft:   #fef2f2;  /* danger as a ground, under a loud message */
-  --radius-control:      10px;     /* buttons, inputs, menu items */
-  --shadow-card-hover:   0 4px 12px rgb(16 24 40 / 0.08), 0 2px 4px rgb(16 24 40 / 0.05);
-  --shadow-pop:          0 12px 28px rgb(16 24 40 / 0.12), 0 2px 6px rgb(16 24 40 / 0.06);
+  --color-accent-strong: #4338ca; /* accent, one step down: hover/active fill */
+  --color-danger-strong: #b91c1c; /* danger, one step down: hover/active fill */
+  --color-danger-soft: #fef2f2; /* the palette red at its palest: a loud ground */
+  --radius-control: 10px; /* buttons, inputs, menu items — smaller than a card */
+  --shadow-card-hover: 0 4px 12px rgb(16 24 40 / 0.08), 0 2px 4px rgb(16 24 40 / 0.05);
+  --shadow-pop: 0 12px 28px rgb(16 24 40 / 0.12), 0 2px 6px rgb(16 24 40 / 0.06);
 ```
 
-Motion is limited to one 160 ms entrance for things that appear over the page (toast, menu, dialog) and to colour/shadow transitions on hover; all of it is suppressed under `prefers-reduced-motion: reduce`.
+Phase 5 adds exactly one new motion: a 160 ms entrance (`--animate-rise`) for things that appear over the page — toast, menu, dialog — plus colour and shadow transitions on hover. It does not touch the two pre-existing looping animations, the `animate-spin` on a pending submit and the `animate-pulse` on skeleton bars. Every animation in the app, new and old, is suppressed under `prefers-reduced-motion: reduce`.
 
 ### Screen: `/sign-in`
 - Layout: centered card (max-w-sm) on `--color-bg`; app name "Notera Notes" above the card.
@@ -352,7 +353,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 - **B6 — No web storage.** No note data, session data or derived cache in `localStorage`/`sessionStorage`.
 - **B7 — Hard cap.** Creating a note beyond `LIMITS.notesPerUser` is blocked with "You've reached the limit of {n} notes."
 - **B8 — Save feedback.** Failed save: retry ×3 (1 s / 2 s / 4 s), toast "Couldn't save. Retrying…", then persistent banner with **Retry now** — delivered as Toast's `duration: "persistent"` variant (Block E component table), all four steps sharing one dedupe key so the user sees one notice, not four. The three failures are told apart by a discriminated result, not a message: retryable (this rule), session expired (G-1) and note gone (G-13) need different behaviour.
-  After the third failure the editor **stops saving automatically** and waits for **Retry now** (or for the sign-in G-1 offers): the notice is where the next move lives, so continuing to fire a save on every keystroke against a network that is still down would only pile invisible attempts up behind it. Typed text stays in local state throughout, so nothing is lost by waiting, and the indicator reads "Couldn't save your changes." rather than "Saving…" — an indicator must not claim progress that has stopped. Dismissing the notice with its × is not a way out: saving stays suspended, so the next edit re-surfaces the same notice (one dedupe key, so it never stacks). Without that, a dismissal left a failed save with its only affordance gone — the footer still reporting the failure and a reload the only exit, which is the one action that loses the text. The same holds for G-1's session notice.
+  After the third failure the editor **stops saving automatically** and waits for **Retry now** (or for the sign-in G-1 offers): the notice is where the next move lives, so continuing to fire a save on every keystroke against a network that is still down would only pile invisible attempts up behind it. Typed text stays in local state throughout, so nothing is lost by waiting, and the indicator reads "Couldn't save your changes." rather than "Saving…" — an indicator must not claim progress that has stopped. Dismissing the notice with its × is not a way out: saving stays suspended, so the next edit re-surfaces the same notice (one dedupe key, so it never stacks). Without that, a dismissal left a failed save with its only affordance gone — the status indicator still reporting the failure and a reload the only exit, which is the one action that loses the text. The same holds for G-1's session notice.
 > Decision (Phase 4 gate, owner-approved): the suspension is where rule B8 ends, and it is NOT extended into auto-resume-on-reconnect. An `online` event listener would make the recovery automatic, and it is a reasonable thing to want — but B8 deliberately hands the next move to the user, and a save that fires itself the moment the network returns is a different promise from a button that says **Retry now**. Post-sprint candidate, not this branch.
 > Decision: a Server Action call that fails in transport **rejects**; it does not return a result. Every client-side call therefore goes through `lib/callAction.ts`, which turns a dead network into `unavailable` and re-reports Next's `NEXT_REDIRECT` signal as success. Found by the Phase 4 browser pass: a bare `await` on an action left the editor's in-flight flag set forever, so one offline save silenced every later save — and the text was never written even after the network came back.
 

@@ -16,12 +16,28 @@ import type { ActionFailure, ActionResult } from "@/lib/types";
  */
 const FRAMEWORK_SIGNALS = ["NEXT_REDIRECT", "NEXT_HTTP_ERROR_FALLBACK"];
 
+/**
+ * The `digest` Next attaches to an error that CROSSED THE SERVER BOUNDARY, or null.
+ *
+ * It is the only thing at the client that distinguishes "the action ran and threw"
+ * from "the request never arrived": a transport rejection is a plain DOM
+ * `TypeError` with no digest, while an exception raised inside the action is
+ * re-thrown here carrying one (in production it is all that survives — the message
+ * is replaced by the digest; in development Next forwards the real message too).
+ */
+function digestOf(error: unknown): string | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" ? digest : null;
+}
+
 function isFrameworkSignal(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-  const digest = (error as { digest?: unknown }).digest;
-  const marks = [error.message, typeof digest === "string" ? digest : ""];
+  const marks = [error.message, digestOf(error) ?? ""];
   return FRAMEWORK_SIGNALS.some((signal) => marks.some((mark) => mark.startsWith(signal)));
 }
 
@@ -60,21 +76,35 @@ export async function callAction<T>(run: () => Promise<T>): Promise<T | ActionRe
       // unhandled rejection (which in dev lights up the error overlay).
       return { ok: true };
     }
-    // Developer-visible only: the user-facing message is the caller's business, and
-    // every string it could use lives in lib/copy.ts (rule 10).
+    // TWO FAILURES REACH HERE, and they deserve different severities — logging both
+    // at one level makes one of them a lie. Developer-visible only either way: the
+    // user-facing message is the caller's business, and every string it could use
+    // lives in lib/copy.ts (rule 10).
     //
-    // WARN, NOT ERROR, and the severity is the point. This branch is the HANDLED case:
-    // the failure is already modelled as a structured `unavailable` result that every
-    // caller answers (rule B8's ladder, the create/delete toasts), so nothing here is
-    // unaccounted for. Logged at error level it also fed the Next dev overlay — a
-    // "Failed to fetch" card with a call stack over the app on every offline save,
-    // which is a real defect's presentation for something the app is handling exactly
-    // as specified. `warn` keeps the same context in the console for the developer
-    // without claiming the app broke.
+    // NO DIGEST — the request never arrived (offline, dev server down). This is the
+    // HANDLED case: it is already modelled as a structured `unavailable` result that
+    // every caller answers (rule B8's ladder, the create/delete toasts), so nothing
+    // is unaccounted for. At `error` it also fed the Next dev overlay a "Failed to
+    // fetch" card with a call stack over the app on every offline save — a real
+    // defect's presentation for behaviour the app delivers exactly as specified.
+    // `warn` keeps the whole context in the console without claiming the app broke.
     //
-    // Anything genuinely unhandled must stay `console.error` — app/error.tsx, which
-    // logs the exception that escaped rendering, is the one that must keep it.
-    console.warn("[callAction] the action never ran", error);
+    // WITH A DIGEST — the action RAN and threw on the server: a bug in the action, a
+    // Supabase client that threw instead of returning, a serialization failure. That
+    // is unhandled by definition, so it keeps `error` and it keeps the overlay. It
+    // also gets its own message: "never ran" was false for this case, and a wrong
+    // message is worse than a wrong level, because it sends the reader looking at the
+    // network when the fault is on the server.
+    //
+    // Framework signals (NEXT_REDIRECT) carry a digest too and are already gone by
+    // here — isFrameworkSignal runs first, above. Misclassification in either
+    // direction changes only the log line: the returned result is `unavailable`
+    // either way, so no caller's behaviour depends on getting this split right.
+    if (digestOf(error) !== null) {
+      console.error("[callAction] the action threw", error);
+    } else {
+      console.warn("[callAction] the action never ran", error);
+    }
     return { ok: false, failure: "unavailable" } satisfies ActionFailure;
   }
 }

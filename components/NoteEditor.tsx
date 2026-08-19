@@ -511,9 +511,11 @@ export function NoteEditor({ note }: { note: NoteView }) {
       </div>
 
       {/* The note itself sits on a sheet of paper: one card, a title zone divided from
-          the body by a hairline, and a ring drawn around the whole sheet while either
-          field has focus (owner priority 2 — the page has to read as an editor). */}
-      <div className="rounded-card border border-border bg-surface shadow-card transition-shadow focus-within:border-accent/40 focus-within:shadow-card-hover">
+          the body by a hairline, and an accent BORDER (not a ring) around the whole
+          sheet while either field has focus (owner priority 2 — the page has to read
+          as an editor). Both halves of that effect are transitioned, so the border
+          colour does not snap while the shadow eases. */}
+      <div className="rounded-card border border-border bg-surface shadow-card transition-[box-shadow,border-color] focus-within:border-accent/40 focus-within:shadow-card-hover">
         {/* Borderless title input, SPEC Block E. Local state only — value comes from
             `title`, never from a server round-trip. */}
         <input

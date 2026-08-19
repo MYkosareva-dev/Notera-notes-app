@@ -79,17 +79,19 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
   }, [open]);
 
   /**
-   * Closes when focus lands outside the menu — the other half of the outside-pointerdown
-   * rule, for the keyboard. `relatedTarget` is where focus is GOING; it is null when
-   * focus leaves the document entirely (window blur, devtools), and that case is left
-   * open on purpose, because the menu should still be there when the user comes back.
+   * Closes when focus lands on a control outside the menu — the other half of the
+   * outside-pointerdown rule, for the keyboard.
+   *
+   * `relatedTarget` is where focus is GOING, and null covers several unrelated cases
+   * at once: focus moved to `document.body` or to something non-focusable, a
+   * programmatic `.blur()` ran, or focus left the document (window blur, devtools).
+   * None of them is the user choosing another control, so all of them leave the menu
+   * open — an outside CLICK is already handled by the pointerdown listener above, so
+   * nothing is stranded by declining to guess here.
    */
   function handleFocusOut(event: ReactFocusEvent<HTMLDivElement>) {
     const next = event.relatedTarget;
-    if (next instanceof Node && root.current?.contains(next)) {
-      return;
-    }
-    if (next === null) {
+    if (next === null || root.current?.contains(next)) {
       return;
     }
     setOpen(false);

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
-/* Design tokens — the SPEC Block E set, verbatim.
+/* Design tokens. The first ten are the SPEC Block E set, verbatim; the Phase 5
+   additions below them are derived from those and are listed in Block E too.
    Declared inside @theme so Tailwind emits each one as a CSS variable on :root
    *and* generates the matching utilities (bg-surface, text-text-muted,
    border-border, rounded-card, shadow-card, …). One source of truth, no
@@ -19,19 +20,25 @@
     0 1px 3px rgb(16 24 40 / 0.07), 0 1px 2px rgb(16 24 40 / 0.04);
 
   /* Phase 5 additions. Every one is DERIVED from a token above — the pressed
-     shade of the same indigo, the palest tint of the same red, the same shadow
-     recipe at two more depths — so the palette gains no new hue. They exist
-     because the values were otherwise about to be repeated inline in a dozen
-     className strings, which rule 11 exists to prevent. */
+     shade of the same indigo and of the same red, the palest tint of that red,
+     the same shadow recipe at two more depths — so the palette gains no new hue.
+     A token was added where a value repeats ACROSS FILES; some one-off alphas
+     (`border-text/15`, `ring-danger/*`, `text-text-muted/70`) are still inline
+     on purpose, so this block is the shared vocabulary rather than an exhaustive
+     index of every colour the app computes. Naming those is parked debt,
+     recorded at the Phase 5 gate, not an omission. */
   --color-accent-strong: #4338ca; /* accent, one step down: hover/active fill */
-  --color-danger-soft: #fef2f2; /* danger at 5% ground, for a loud message */
+  --color-danger-strong: #b91c1c; /* danger, one step down: hover/active fill */
+  --color-danger-soft: #fef2f2; /* the palette red at its palest: a loud ground */
   --radius-control: 10px; /* buttons, inputs, menu items — smaller than a card */
   --shadow-card-hover:
     0 4px 12px rgb(16 24 40 / 0.08), 0 2px 4px rgb(16 24 40 / 0.05);
   --shadow-pop:
     0 12px 28px rgb(16 24 40 / 0.12), 0 2px 6px rgb(16 24 40 / 0.06);
 
-  /* One entrance for everything that appears over the page (toast, menu). */
+  /* One entrance for everything that appears over the page (toast, menu,
+     dialog). Note this is the only NEW motion: the pre-existing `animate-spin`
+     and `animate-pulse` are untouched by Phase 5. */
   --animate-rise: rise 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 

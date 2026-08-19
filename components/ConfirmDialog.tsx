@@ -110,7 +110,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-control bg-danger px-4 py-2 text-sm font-medium text-white shadow-card transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
+            className="rounded-control bg-danger px-4 py-2 text-sm font-medium text-white shadow-card transition-colors hover:bg-danger-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
           >
             {confirmLabel}
           </button>

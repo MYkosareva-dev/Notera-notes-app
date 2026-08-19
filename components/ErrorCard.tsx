@@ -2,7 +2,6 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-
 import { AlertTriangle } from "lucide-react";
 
 import { copy } from "@/lib/copy";
