@@ -41,6 +41,7 @@ console errors.
 
 ## Phase 2 — Supabase wiring  (branch `feat/supabase-setup`)
 Build: `lib/supabase/server.ts`, `lib/supabase/client.ts`, `lib/supabase/middleware.ts`
+(renamed `lib/supabase/proxy.ts` in Phase 3 with the entry-file rename)
 per the Context7-fetched docs in `docs/`; `supabase/schema.sql` checked in
 (already executed in the SQL Editor by the owner); env vars read from `.env.local`.
 No UI changes.

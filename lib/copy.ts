@@ -18,6 +18,24 @@ export const copy = {
     allNotes: "← All notes",
   },
 
+  // Sign-in screen and the sign-out control (SPEC Block E + Block F). The three
+  // failure strings are ours on purpose: Supabase's raw error text varies with
+  // project config and can distinguish "wrong password" from "no such account",
+  // which is an account-enumeration leak.
+  auth: {
+    emailLabel: "Email",
+    passwordLabel: "Password",
+    submit: "Sign in",
+    submitPending: "Signing in…",
+    signOut: "Sign out",
+    invalidEmail: "Enter a valid email address.",
+    missingPassword: "Enter your password.",
+    badCredentials: "Email or password is incorrect.",
+    // SPEC Block G case 6 — Supabase Auth's built-in rate limit, which this
+    // project accepts as-is rather than adding throttling of its own.
+    rateLimited: "Too many attempts. Wait a minute and try again.",
+  },
+
   errors: {
     // SPEC Block E: the generic failure message, shown by app/error.tsx.
     generic: "Something went wrong. Try again.",

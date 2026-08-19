@@ -31,7 +31,7 @@ export async function createClient() {
         // must accompany a refreshed auth cookie so no cache can serve one user's
         // session to another. Deliberately unused here: this runtime has no
         // writable response headers, so forwarding them is the interceptor's job
-        // (lib/supabase/middleware.ts). Supabase's own server snippet names it
+        // (lib/supabase/proxy.ts). Supabase's own server snippet names it
         // `_headers` for the same reason.
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
@@ -40,8 +40,8 @@ export async function createClient() {
         } catch {
           // Server Components cannot write cookies, so a write that lands
           // during render throws here. Swallowing it is safe for a token REFRESH
-          // only: the session-refresh helper will re-write the cookie on the next
-          // request, once Phase 3 wires the entry file.
+          // only: the session-refresh helper behind proxy.ts re-writes the cookie
+          // on the next request.
           //
           // It is NOT safe as a general rule. auth.signOut() clears cookies
           // through this same setAll, and nothing re-attempts a deletion — a

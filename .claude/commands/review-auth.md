@@ -19,8 +19,9 @@ For each item give a verdict — PASS or FAIL — and for every FAIL cite the fi
    client created without the `@supabase/ssr` cookie adapter)?
 7. **Ownership filter.** Any query on the `notes` table missing the explicit
    `.eq('user_id', ...)` filter for the signed-in user?
-8. **Route coverage.** Do BOTH `middleware.ts` and `app/notes/layout.tsx` guard the
-   workspace? Flag if either is missing or if a new workspace route escapes both.
+8. **Route coverage.** Do BOTH `proxy.ts` (Next's current name for `middleware.ts`)
+   and `app/notes/layout.tsx` guard the workspace? Flag if either is missing or if
+   a new workspace route escapes both.
 9. **DAL bypass.** Does any page, component or Server Action query the `notes`
    table directly instead of going through `lib/notes.ts`? Does any Server Action
    accept a user id from the client instead of deriving it via `getUser()` inside

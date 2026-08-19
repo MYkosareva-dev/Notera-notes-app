@@ -1,9 +1,15 @@
+import { SignInForm } from "@/components/SignInForm";
 import { copy } from "@/lib/copy";
 
 /**
- * Public sign-in screen. Layout shell only for now: the email/password form,
- * the `signIn` Server Action and the "already signed in → /notes" redirect all
- * land in Phase 3 (BUILD_PHASES.md). Nothing here touches Supabase.
+ * Public sign-in screen (SPEC Block E). A Server Component shell around the
+ * client form; the form itself talks to the `signIn` Server Action.
+ *
+ * No getUser() call here. This page is public, so there is no access decision to
+ * make: the "already signed in → /notes" hop is a convenience that proxy.ts takes
+ * before this renders (SPEC Block A routes, edge case G-3). If it ever stopped
+ * working the worst case is a signed-in user seeing a form — no data is exposed,
+ * which is why this one may live in the interceptor while real guards may not.
  */
 export default function SignInPage() {
   return (
@@ -12,7 +18,7 @@ export default function SignInPage() {
         {copy.app.name}
       </h1>
       <div className="w-full max-w-sm rounded-card border border-border bg-surface p-6 shadow-card">
-        <p className="text-sm text-text-muted">{copy.placeholder.comingSoon}</p>
+        <SignInForm />
       </div>
     </main>
   );
