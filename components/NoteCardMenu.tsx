@@ -12,7 +12,7 @@ import { copy } from "@/lib/copy";
 import { ROUTES, notePath } from "@/lib/routes";
 
 /**
- * The per-card "⋯" menu (SPEC Block E — /notes).
+ * The per-card "⋮" menu (SPEC Block E — /notes).
  *
  * **Edit** goes where clicking the card goes. The card is a link and this is a named
  * duplicate of it on purpose: the whole-card link is convenient but silent, so the menu

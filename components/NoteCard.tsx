@@ -18,7 +18,7 @@ import type { NoteView } from "@/lib/types";
  * Phase 6, and this phase ships no tag UI. The rows already carry them.
  *
  * THE LINK IS NOT THE WRAPPER. It is a transparent overlay covering the card, with the
- * "⋯" menu sitting above it. That is what keeps the menu working: interactive content
+ * "⋮" menu sitting above it. That is what keeps the menu working: interactive content
  * cannot legally nest inside an `<a>`, and a button inside a link gets activated by the
  * link on Enter, so no amount of `stopPropagation` would have made a nested trigger
  * behave. As siblings there is nothing to stop — the click never reaches the link at all.

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreVertical } from "lucide-react";
 
 export interface MoreMenuItem {
   label: string;
@@ -19,7 +19,7 @@ interface MoreMenuProps {
 }
 
 /**
- * An icon-only "⋯" trigger with a small menu under it.
+ * An icon-only "⋮" trigger with a small menu under it.
  *
  * NEW in Phase 4, despite the phase brief describing it as carried over from Notera:
  * there was no `MoreMenu` in this repo, in any commit on any branch, or in SPEC's
@@ -113,7 +113,7 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
         onClick={() => setOpen((isOpen) => !isOpen)}
         className="flex size-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
-        <MoreHorizontal aria-hidden="true" className="size-4" />
+        <MoreVertical aria-hidden="true" className="size-4" />
       </button>
 
       {!open ? null : (
