@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 import { deleteNote, saveNote } from "@/app/notes/actions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
+import { useNoteFailureNotice } from "@/components/useNoteFailureNotice";
 import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 import { ROUTES } from "@/lib/routes";
@@ -66,15 +67,28 @@ const MAX_WAIT_MS = 5_000;
 const RETRY_BACKOFF_MS = [1_000, 2_000, 4_000] as const;
 
 /**
- * One dedupe key for every save notice, so the retry sequence updates a single
- * toast in place instead of stacking four (SPEC B8 asks for one notice).
+ * The cap messages keep their own keys — they are about the FIELD, not about a save, so
+ * one must not replace the other. Every save/delete notice shares NOTE_NOTICE_KEY, which
+ * lives with the policy in useNoteFailureNotice.
  */
-const SAVE_TOAST_KEY = "note-save";
 const TITLE_LIMIT_TOAST_KEY = "title-limit";
 const CONTENT_LIMIT_TOAST_KEY = "content-limit";
 
 /** Why saving stopped. Both cases are user-driven from here on (rule B8, G-1). */
 type SuspendedReason = "retriesSpent" | "sessionExpired";
+
+/**
+ * Module scope, not a closure: it touches nothing but its argument, and defining it per
+ * render made it a function used inside memoized callbacks while being neither stable nor
+ * declared as a dependency — the pattern react-hooks/exhaustive-deps exists to catch, in
+ * a project with no ESLint to catch it.
+ */
+function clearTimer(timer: { current: number | null }) {
+  if (timer.current !== null) {
+    window.clearTimeout(timer.current);
+    timer.current = null;
+  }
+}
 
 interface Draft {
   title: string;
@@ -95,7 +109,8 @@ function diff(draft: Draft, saved: Draft): NotePatch | null {
 
 export function NoteEditor({ note }: { note: NoteView }) {
   const router = useRouter();
-  const { showToast, dismissKey } = useToast();
+  const { showToast } = useToast();
+  const notice = useNoteFailureNotice();
 
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
@@ -131,18 +146,16 @@ export function NoteEditor({ note }: { note: NoteView }) {
    */
   const retryNow = useRef<() => void>(() => {});
   /**
+   * `flush` held in a ref for the same declaration-order reason: the success path needs to
+   * re-arm the debounce, and `flush` is defined after `attemptSave`. Assigned in an effect.
+   */
+  const flushRef = useRef<() => void>(() => {});
+  /**
    * Set when this note is deliberately left behind — deleted, or found to be gone.
    * It stops the unmount flush from re-saving a row that should not come back and
    * from raising a second notice on the screen the user just landed on.
    */
   const abandoned = useRef(false);
-
-  const clearTimer = (timer: { current: number | null }) => {
-    if (timer.current !== null) {
-      window.clearTimeout(timer.current);
-      timer.current = null;
-    }
-  };
 
   /** Stops everything pending — used when the note is abandoned (deleted or gone). */
   const clearSaveTimers = useCallback(() => {
@@ -158,23 +171,17 @@ export function NoteEditor({ note }: { note: NoteView }) {
    */
   const showSuspendedNotice = useCallback(
     (reason: SuspendedReason) => {
-      const expired = reason === "sessionExpired";
-      showToast(expired ? copy.notes.save.sessionExpired : copy.notes.save.failed, {
-        variant: "danger",
-        duration: "persistent",
-        key: SAVE_TOAST_KEY,
-        action: expired
-          ? {
-              label: copy.notes.save.signIn,
-              onClick: () => router.push(ROUTES.signIn),
-            }
-          : {
-              label: copy.notes.save.retryNow,
-              onClick: () => retryNow.current(),
-            },
-      });
+      if (reason === "sessionExpired") {
+        notice.showSessionExpired();
+        return;
+      }
+      // Through the ref: the notice is built before `attemptSave` exists in this scope,
+      // and the closure it hands to the toast is never replaced once shown (Toast
+      // compares actions by label, so an identical re-show is a no-op). Inlining
+      // `attemptSave` here would capture a stale one.
+      notice.showRetryable(() => retryNow.current());
     },
-    [router, showToast],
+    [notice],
   );
 
   /** Stops automatic saving and says so, on screen and in the footer. */
@@ -203,16 +210,19 @@ export function NoteEditor({ note }: { note: NoteView }) {
         // SPEC G-13: deleted elsewhere. Stop trying to save it and leave.
         abandoned.current = true;
         clearSaveTimers();
-        showToast(copy.notes.gone, { variant: "danger", key: SAVE_TOAST_KEY });
+        notice.showGone();
         router.replace(ROUTES.notes);
         return;
       }
 
-      // "invalid" and "limitReached": the editor blocks both before they can
-      // happen, so reaching here means a payload this UI did not send.
-      showToast(copy.errors.generic, { variant: "danger", key: SAVE_TOAST_KEY });
+      // What is left: `invalid` and `limitReached`, which the editor blocks before they
+      // can happen — and `unavailable`, which only reaches here from the DELETE path
+      // (autosave handles it with the ladder before ever calling this). All three are
+      // one-shot: there is nothing for the user to retry that the Delete button does not
+      // already offer.
+      notice.showGeneric();
     },
-    [clearSaveTimers, router, showToast, suspend],
+    [clearSaveTimers, notice, router, suspend],
   );
 
   /**
@@ -250,13 +260,19 @@ export function NoteEditor({ note }: { note: NoteView }) {
       if (result.ok) {
         saved.current = sent;
         suspendedFor.current = null;
-        dismissKey(SAVE_TOAST_KEY);
-        // Anything typed while this was in flight is now the difference; save it.
+        notice.clear();
         if (diff(draft.current, saved.current) === null) {
           setSaveState("saved");
-        } else {
-          void attemptSave(0);
+          return;
         }
+        // Something was typed while this was in flight. RE-ARM THE DEBOUNCE rather than
+        // saving again straight away: an immediate re-fire chains one write per
+        // round-trip for as long as the user keeps typing, which quietly voids rule
+        // B2's 5 s ceiling — at a 250 ms RTT that is ~220 writes a minute instead of
+        // ~12, each carrying the whole content field. The maxWait timer is re-armed by
+        // the next keystroke, so the ceiling still bounds the tail.
+        clearTimer(debounceTimer);
+        debounceTimer.current = window.setTimeout(() => flushRef.current(), DEBOUNCE_MS);
         return;
       }
 
@@ -276,13 +292,13 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
       // One notice for the whole ladder (the dedupe key), shown from the first
       // failure — not one per attempt.
-      showToast(copy.notes.save.retrying, { key: SAVE_TOAST_KEY });
+      notice.showRetrying();
       retryTimer.current = window.setTimeout(() => {
         retryTimer.current = null;
         void attemptSave(attempt + 1);
       }, backoff);
     },
-    [dismissKey, note.id, notifyFailure, showToast, suspend],
+    [note.id, notice, notifyFailure, suspend],
   );
 
   // Retry now: leave the suspended state and try again from the current draft. Held in
@@ -291,10 +307,10 @@ export function NoteEditor({ note }: { note: NoteView }) {
     retryNow.current = () => {
       suspendedFor.current = null;
       setSaveState("saving");
-      showToast(copy.notes.save.retrying, { key: SAVE_TOAST_KEY });
+      notice.showRetrying();
       void attemptSave(0);
     };
-  }, [attemptSave, showToast]);
+  }, [attemptSave, notice]);
 
   /** Fires the debounce/maxWait timers' payload. */
   const flush = useCallback(() => {
@@ -313,6 +329,10 @@ export function NoteEditor({ note }: { note: NoteView }) {
     }
     void attemptSave(0);
   }, [attemptSave]);
+
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
 
   /**
    * The debounce (rule B2): 300 ms of quiet sends the change, and a 5 s maxWait
@@ -362,7 +382,9 @@ export function NoteEditor({ note }: { note: NoteView }) {
       // SPEC G-12 — save-on-unmount. Deliberately not awaited: the component is
       // going away, and the POST completes on its own. Nothing here touches state
       // afterwards (`mounted` is already false), so there is nothing to leak.
-      const pending = diff(draft.current, saved.current);
+      // Not while a save is on the wire: `saved` has not advanced yet, so the pending
+      // patch would be the identical one already in flight. Harmless but wasted.
+      const pending = inFlight.current ? null : diff(draft.current, saved.current);
       if (pending !== null) {
         // Through callAction as well: the component is already gone, so a rejection
         // here has nobody to report to and would surface as an unhandled rejection.
@@ -404,12 +426,15 @@ export function NoteEditor({ note }: { note: NoteView }) {
     // deleted on purpose.
     abandoned.current = true;
     clearSaveTimers();
-    dismissKey(SAVE_TOAST_KEY);
+    notice.clear();
 
     startDeleting(async () => {
       const result = await callAction(() => deleteNote(note.id));
 
       if (result.ok) {
+        // Close it before navigating: a modal dialog left open paints over the editor
+        // until the route change lands.
+        setConfirmOpen(false);
         showToast(copy.notes.deleted);
         router.replace(ROUTES.notes);
         return;
@@ -417,7 +442,8 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
       if (result.failure === "notFound") {
         // Already gone — the user's intent is satisfied either way.
-        showToast(copy.notes.gone, { variant: "danger" });
+        setConfirmOpen(false);
+        notice.showGone();
         router.replace(ROUTES.notes);
         return;
       }

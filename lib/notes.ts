@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { PostgrestError } from "@supabase/supabase-js";
+import type { AuthError, PostgrestError } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { LIMITS } from "@/lib/types";
@@ -50,6 +50,12 @@ const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
 const INVALID_CODES: ReadonlySet<string> = new Set([
   "23514", // check_violation — the title/content/tags CHECKs from SPEC Block C
   "22001", // string_data_right_truncation
+  // insufficient_privilege: an RLS refusal. It should be unreachable, because the
+  // explicit filter and the policy say the same thing by construction — which is
+  // exactly why it must be TERMINAL rather than retryable. Retrying an authorization
+  // refusal three times and then offering "Retry now" would present a permission
+  // failure as a network blip.
+  "42501",
 ]);
 
 /**
@@ -103,7 +109,9 @@ async function requireUser() {
         status: error.status,
         code: error.code,
       });
+      throw new NotesError(authFailure(error), error.code);
     }
+    // No error and no user: the request simply carries no session.
     throw new NotesError("sessionExpired");
   }
 
@@ -112,9 +120,12 @@ async function requireUser() {
 
 /** Maps a PostgREST failure onto the union, logging what the user never sees. */
 function failureFor(error: PostgrestError, operation: string): NoteFailure {
+  // Code and hint only. PostgREST's `details` is Postgres DETAIL, which for a CHECK
+  // violation reads "Failing row contains (id, user_id, title, content, …)" — the user's
+  // note text and their owner id, in a server log.
   console.error(`[notes] ${operation} failed`, {
     code: error.code,
-    details: error.details,
+    hint: error.hint,
   });
 
   if (NOT_FOUND_CODES.has(error.code)) {
@@ -124,6 +135,29 @@ function failureFor(error: PostgrestError, operation: string): NoteFailure {
     return "invalid";
   }
   return "unavailable";
+}
+
+/**
+ * Why `getUser()` refused, told apart by status rather than collapsed.
+ *
+ * Mapping every auth error to `sessionExpired` sent the one failure class rule B8's
+ * retry ladder exists for straight past the ladder: a transient Auth-host failure
+ * suspended autosave permanently behind "Your session expired." and a **Sign in**
+ * button, for a session that had not expired.
+ *
+ * Transport failures carry no status (auth-js `AuthRetryableFetchError`), and 5xx/429
+ * are the server saying "not now" — both are `unavailable`, so the editor retries. Any
+ * other 4xx is about the token itself (401/403, and the `invalid_grant` family that
+ * carries a 400 — including this project's own synthetic refresh decline from
+ * lib/supabase/server.ts, where only `proxy.ts` can mint a new pair): the session is
+ * unusable from here and no amount of retrying changes that.
+ */
+function authFailure(error: AuthError): NoteFailure {
+  const status = error.status;
+  if (status === undefined || status === 0 || status === 429 || status >= 500) {
+    return "unavailable";
+  }
+  return "sessionExpired";
 }
 
 function raise(error: PostgrestError, operation: string): never {
@@ -155,6 +189,13 @@ function requireNoteId(id: string): string {
  *
  * The `.limit()` is `LIMITS.notesPerUser`: the row cap rule B7 enforces on write,
  * so it is also the largest honest page size (rule 11 — the number is imported).
+ *
+ * Ordered by `updated_at desc` so the order follows the timestamp the card actually
+ * prints (SPEC Block E) — sorting by `created_at` while displaying `updated_at` produced
+ * a list whose order contradicted its own labels. The index in Block C is still
+ * `(user_id, created_at desc)`, so this ordering sorts rather than walks the index; at
+ * `LIMITS.notesPerUser` rows that is nothing, and the matching index joins the Phase 6
+ * schema batch (rule 8 — DDL changes go through SPEC Block C and a SQL Editor re-run).
  */
 export async function listNotes(tag?: string): Promise<NoteView[]> {
   const { supabase, user } = await requireUser();
@@ -163,7 +204,7 @@ export async function listNotes(tag?: string): Promise<NoteView[]> {
     .from("notes")
     .select(NOTE_COLUMNS)
     .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(LIMITS.notesPerUser);
 
   const wanted = tag?.trim();

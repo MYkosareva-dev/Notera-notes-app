@@ -211,6 +211,7 @@ create trigger notes_set_updated_at
   for each row execute function public.set_updated_at();
 ```
 
+> Decision (Phase 4 gate): the list is ordered by **`updated_at desc`**, not `created_at desc`, so the order follows the timestamp the card prints (Block E). Sorting by one column while displaying another produced a list whose order contradicted its own labels — edit an old note and it stayed at the bottom saying "2 minutes ago". The index above is still `(user_id, created_at desc)`, so the query sorts instead of walking the index; at `LIMITS.notesPerUser` rows that costs nothing, and `(user_id, updated_at desc)` joins the Phase 6 schema amendment batch rather than being slipped in as an un-run DDL edit (rule 8).
 > Decision: RLS is enabled even though the assignment only demands query-level filtering. RLS is the server-enforced second fence: even a buggy query cannot leak foreign rows. Application queries STILL filter by `user_id` explicitly (rule B4) — defense in depth, and the explicit filter uses the index.
 > Decision: tags are a `text[]` column, not a join table. One user's tags never interact with another's, cardinality is tiny (≤10), and the tag filter is a single `contains` query. A join table would double the RLS surface for zero benefit at this size.
 
@@ -277,7 +278,7 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 - Actions: submit → Server Action `signIn` → success `redirect("/notes")` / failure shows the inline error, password field cleared.
 
 ### Screen: `/notes`
-- Layout: `Header` (app name left; **New note** button and **Sign out** right); below it `TagFilter` chip row (chip **All** + one chip per distinct tag of the user's notes); then a responsive card grid (1 col at 375, 3 cols at 1280).
+- Layout: `Header` (app name left; **New note** button and **Sign out** right); below it `TagFilter` chip row (chip **All** + one chip per distinct tag of the user's notes); then a responsive card grid (1 col at 375, 3 cols at 1280), **most recently updated first** — the same timestamp each card displays.
 - `NoteCard`: title (or "Untitled" in muted style when empty), 2-line content preview, tag chips, `updated_at` as relative date, and a `MoreMenu` "⋮" trigger in the top-right corner — revealed on hover (or keyboard focus) at desktop, always visible at 375 where there is no hover to reveal it with, and kept visible while its own menu is open. Click anywhere else on the card → `/notes/[id]`.
 > Decision: the card-wide link is an ABSOLUTE OVERLAY, not the card's wrapper element, and it carries the note's title as its accessible name. Interactive content may not nest inside an `<a>`: a trigger inside the link would be activated by the link on Enter, and no amount of `stopPropagation` fixes that. As siblings there is nothing to stop — a click on the menu never reaches the link. The cost, accepted: the preview text is not selectable.
 - States: **Loading** — 6 skeleton cards (`Skeletons.tsx`); **Empty** — illustration-free card: "No notes yet." + subtext "Create your first note to get started." + **New note** CTA; empty because of a tag filter: "No notes with this tag."; **Error** — full-width inline card: "Couldn't load your notes." + **Try again** button (re-fetch).

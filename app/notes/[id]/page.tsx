@@ -65,7 +65,13 @@ export default async function NotePage({
         {copy.common.allNotes}
       </Link>
       <div className="mt-6">
-        <NoteEditor note={note} />
+        {/* `key` on the note id: every piece of editor state is initialized from these
+            props once and never re-synced (rule B2), so the component must not be reused
+            across two different notes. Whether an /notes/a -> /notes/b navigation
+            remounts it is Next's segment keying, not something this file states; the key
+            makes "props are initial state only" true by construction, and the failure it
+            forecloses is a save of note A's text onto note B. */}
+        <NoteEditor key={note.id} note={note} />
       </div>
     </main>
   );

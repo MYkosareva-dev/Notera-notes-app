@@ -35,7 +35,7 @@ export function NewNoteButton() {
       // all (SPEC Block E promises a toast on failure).
       const result = await callAction(createNote);
 
-      if (result?.ok === false) {
+      if (!result.ok) {
         // Two distinct reasons, two messages. The cap message is derived from
         // LIMITS (rule 10); everything else is the Block E failure copy.
         showToast(

@@ -33,7 +33,12 @@ function failureOf(error: unknown, operation: string): NoteFailure {
   if (notes.isNotesError(error)) {
     return error.failure;
   }
-  console.error(`[notes/${operation}] unexpected failure`, error);
+  // Name and message only. An error object from this layer can carry a request payload,
+  // and a payload here is the user's note text.
+  console.error(
+    `[notes/${operation}] unexpected failure`,
+    error instanceof Error ? { name: error.name, message: error.message } : { type: typeof error },
+  );
   return "unavailable";
 }
 
@@ -82,7 +87,11 @@ export async function saveNote(id: string, patch: NotePatch): Promise<ActionResu
     return { ok: false, failure: failureOf(error, "saveNote") };
   }
 
-  revalidatePath(notePath(id));
+  // The LIST only. Revalidating this note's own route as well would force a server
+  // re-render of /notes/[id] on every autosave — an extra getUser() plus a getNote(),
+  // whose payload the editor discards, because its text is local state after mount
+  // (rule B2). Rule B1 asks for revalidatePath, not for revalidating a route that
+  // displays nothing the write changed.
   revalidatePath(ROUTES.notes);
   return { ok: true };
 }
@@ -105,8 +114,10 @@ export async function deleteNote(id: string): Promise<ActionResult> {
     return { ok: false, failure: failureOf(error, "deleteNote") };
   }
 
+  // The list loses a card. The note's own route is deliberately not revalidated: there
+  // is no row behind it any more, so re-rendering it would only produce the not-found
+  // screen for a client that is already leaving.
   revalidatePath(ROUTES.notes);
-  revalidatePath(notePath(id));
   return { ok: true };
 }
 

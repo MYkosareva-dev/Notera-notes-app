@@ -98,7 +98,7 @@ export const copy = {
       signIn: SIGN_IN_LABEL,
     },
 
-    // The per-card "⋯" menu (SPEC Block E). `label` is the icon-only trigger's
+    // The per-card "⋮" menu (SPEC Block E). `label` is the icon-only trigger's
     // accessible name; `edit` names the destination the whole-card link reaches
     // silently.
     menu: {

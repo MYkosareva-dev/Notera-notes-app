@@ -15,10 +15,10 @@ export function NoteCardSkeleton() {
         <Bar className="h-3 w-full" />
         <Bar className="h-3 w-5/6" />
       </div>
-      <div className="mt-4 flex gap-2">
-        <Bar className="h-5 w-16" />
-        <Bar className="h-5 w-12" />
-      </div>
+      {/* No tag chips: NoteCard renders no tags until Phase 6, and a skeleton that
+          promises a row the loaded card does not have makes every list load end in a
+          visible jump. The chips come back with the tags. */}
+      <Bar className="mt-4 h-3 w-20" />
     </div>
   );
 }

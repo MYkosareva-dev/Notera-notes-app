@@ -98,7 +98,7 @@ export function NoteCard({ note }: { note: NoteView }) {
         */}
         <NoteCardMenu
           noteId={note.id}
-          className="relative z-10 -mr-1 -mt-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:has-[[aria-expanded=true]]:opacity-100"
+          className="z-10 -mr-1 -mt-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:has-[[aria-expanded=true]]:opacity-100"
         />
       </div>
 

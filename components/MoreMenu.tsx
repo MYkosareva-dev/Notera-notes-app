@@ -14,7 +14,11 @@ interface MoreMenuProps {
   /** Accessible name for the icon-only trigger. From lib/copy.ts (rule 10). */
   label: string;
   items: readonly MoreMenuItem[];
-  /** Positioning and reveal rules belong to the caller, not to this component. */
+  /**
+   * Placement in the caller's layout, and any reveal rules (hover, focus-within). The
+   * containing block is NOT the caller's business: this component establishes its own,
+   * because the dropdown is positioned against it.
+   */
   className?: string;
 }
 
@@ -96,7 +100,10 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
   return (
     <div
       ref={root}
-      className={className}
+      // `relative` is owned here, not passed in: the menu below is absolutely positioned
+      // against this element, so a caller who forgot the class would silently anchor the
+      // dropdown to some ancestor instead.
+      className={`relative ${className ?? ""}`}
       onKeyDown={handleKeyDown}
       // Belt for callers whose card is itself clickable: nothing that happens in here
       // should reach an ancestor and navigate. (NoteCard also keeps its link out of the
