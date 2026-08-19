@@ -10,14 +10,14 @@ interface EmptyStateProps {
 /** Illustration-free empty state card (SPEC Block E). Presentational only. */
 export function EmptyState({ title, description, action }: EmptyStateProps) {
   return (
-    <div className="rounded-card border border-border bg-surface px-6 py-12 text-center shadow-card">
-      <p className="text-base font-medium">{title}</p>
+    <div className="rounded-card border border-border bg-surface px-6 py-16 text-center shadow-card">
+      <p className="text-lg font-semibold tracking-tight">{title}</p>
       {description ? (
-        <p className="mx-auto mt-1 max-w-sm text-sm text-text-muted">
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-text-muted">
           {description}
         </p>
       ) : null}
-      {action ? <div className="mt-6 flex justify-center">{action}</div> : null}
+      {action ? <div className="mt-7 flex justify-center">{action}</div> : null}
     </div>
   );
 }

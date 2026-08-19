@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Trash2 } from "lucide-react";
 
 import { deleteNote, saveNote } from "@/app/notes/actions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -43,7 +43,8 @@ import type { ActionResult, NoteFailure, NotePatch, NoteView } from "@/lib/types
  * - A notice the user dismissed with × must not strand them. Saving stays suspended,
  *   so the next edit RE-SURFACES the same notice (one dedupe key, so it never stacks).
  *   Without that, dismissing the banner left the only way back — Retry now — nowhere on
- *   screen, with the footer still saying the save had failed and a reload the only exit,
+ *   screen, with the status indicator still saying the save had failed and a reload the
+ *   only exit,
  *   which is the one action that would lose the text.
  * - After the ladder is spent the engine STOPS on purpose and waits for **Retry now**.
  *   Rule B8 ends in a user-driven affordance, so continuing to fire a save on every
@@ -119,7 +120,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
    * but not yet sent, in flight, and waiting on a retry — all of which are real
    * progress. "failed" exists because "Saving…" must not claim progress that has
    * stopped: once the ladder is spent, or the session is gone, nothing is in flight
-   * and the indicator has to say so (SPEC Block E footer).
+   * and the indicator has to say so (SPEC Block E, the editor's status row).
    */
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -184,7 +185,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
     [notice],
   );
 
-  /** Stops automatic saving and says so, on screen and in the footer. */
+  /** Stops automatic saving and says so, on screen and in the status indicator. */
   const suspend = useCallback(
     (reason: SuspendedReason) => {
       suspendedFor.current = reason;
@@ -240,7 +241,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
         // and that is precisely what "Saved" means (`saved` only advances on an `ok`).
         // Without this line the optimistic "Saving…" that scheduleSave sets on every
         // keystroke stood forever whenever an edit was undone inside the debounce window:
-        // type a character, delete it, and the footer claimed progress that had stopped.
+        // type a character, delete it, and the indicator claimed progress that had stopped.
         setSaveState("saved");
         return;
       }
@@ -463,47 +464,79 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
   return (
     <>
-      {/* Borderless title input, SPEC Block E. Local state only — value comes from
-          `title`, never from a server round-trip. */}
-      <input
-        type="text"
-        value={title}
-        onChange={(event) => handleTitleChange(event.target.value)}
-        placeholder={copy.notes.untitled}
-        aria-label={copy.notes.editor.titleLabel}
-        // Not `maxLength`: the cap has to be *explained* (Block F copy), and a
-        // silent browser truncation says nothing. handleTitleChange rejects the
-        // keystroke and toasts instead.
-        className="w-full bg-transparent text-2xl font-semibold tracking-tight outline-none placeholder:font-normal placeholder:text-text-muted focus-visible:outline-none"
-      />
-
-      <textarea
-        value={content}
-        onChange={(event) => handleContentChange(event.target.value)}
-        placeholder={copy.notes.editor.contentPlaceholder}
-        aria-label={copy.notes.editor.contentLabel}
-        className="mt-6 min-h-[60dvh] w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-text-muted focus-visible:outline-none"
-      />
-
-      <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
+      {/* The editor's toolbar, and the save status lives HERE rather than in a footer
+          under 60dvh of textarea (Phase 5, owner priority 1). Sticky, so the status
+          stays beside the text it is about however far the note is scrolled; the
+          negative margins let its translucent ground span the column's full width
+          while the row itself keeps the page's gutters. */}
+      <div className="sticky top-0 z-20 -mx-4 mb-4 flex items-center justify-between gap-3 border-b border-border/70 bg-bg/85 px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6">
+        {/* Quiet when it is good news, loud when it is not: "Saved" and "Saving…" are
+            muted text with a small mark, while the failed state takes a tinted pill,
+            the danger colour and semibold weight — the one save state the user has to
+            act on is the one that reads from across the room. */}
         <p
           aria-live="polite"
-          className={`text-xs ${saveState === "failed" ? "text-danger" : "text-text-muted"}`}
+          className={`flex min-w-0 items-center gap-1.5 rounded-full text-xs transition-colors ${
+            saveState === "failed"
+              ? "bg-danger-soft px-2.5 py-1 font-semibold text-danger ring-1 ring-danger/25"
+              : "py-1 text-text-muted"
+          }`}
         >
-          {saveState === "saved"
-            ? copy.notes.editor.saved
-            : saveState === "saving"
-              ? copy.notes.editor.saving
-              : copy.notes.save.failed}
+          {saveState === "saved" ? (
+            <Check aria-hidden="true" className="size-3.5 shrink-0" />
+          ) : saveState === "saving" ? (
+            <span
+              aria-hidden="true"
+              className="size-1.5 shrink-0 animate-pulse rounded-full bg-text-muted"
+            />
+          ) : (
+            <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+          )}
+          <span className="truncate">
+            {saveState === "saved"
+              ? copy.notes.editor.saved
+              : saveState === "saving"
+                ? copy.notes.editor.saving
+                : copy.notes.save.failed}
+          </span>
         </p>
         <button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-danger transition-colors hover:bg-danger/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger"
+          className="flex shrink-0 items-center gap-1.5 rounded-control px-2.5 py-1.5 text-sm font-medium text-danger transition-colors hover:bg-danger-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger"
         >
           <Trash2 aria-hidden="true" className="size-4" />
           {copy.notes.delete.action}
         </button>
+      </div>
+
+      {/* The note itself sits on a sheet of paper: one card, a title zone divided from
+          the body by a hairline, and a ring drawn around the whole sheet while either
+          field has focus (owner priority 2 — the page has to read as an editor). */}
+      <div className="rounded-card border border-border bg-surface shadow-card transition-shadow focus-within:border-accent/40 focus-within:shadow-card-hover">
+        {/* Borderless title input, SPEC Block E. Local state only — value comes from
+            `title`, never from a server round-trip. */}
+        <input
+          type="text"
+          value={title}
+          onChange={(event) => handleTitleChange(event.target.value)}
+          placeholder={copy.notes.untitled}
+          aria-label={copy.notes.editor.titleLabel}
+          // Not `maxLength`: the cap has to be *explained* (Block F copy), and a
+          // silent browser truncation says nothing. handleTitleChange rejects the
+          // keystroke and toasts instead.
+          className="w-full rounded-t-card bg-transparent px-5 pb-4 pt-5 text-2xl font-semibold tracking-tight outline-none placeholder:font-normal placeholder:text-text-muted/70 focus-visible:outline-none sm:px-7 sm:pb-5 sm:pt-7"
+        />
+
+        <div className="mx-5 border-t border-border sm:mx-7" />
+
+        <textarea
+          value={content}
+          onChange={(event) => handleContentChange(event.target.value)}
+          placeholder={copy.notes.editor.contentPlaceholder}
+          aria-label={copy.notes.editor.contentLabel}
+          className="min-h-[60dvh] w-full resize-none rounded-b-card bg-transparent px-5 py-5 text-[0.9375rem] leading-7 outline-none placeholder:text-text-muted/70 focus-visible:outline-none sm:px-7 sm:py-6"
+        />
       </div>
 
       <ConfirmDialog

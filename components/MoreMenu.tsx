@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type {
+  FocusEvent as ReactFocusEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { MoreVertical } from "lucide-react";
 
 export interface MoreMenuItem {
@@ -40,6 +43,11 @@ interface MoreMenuProps {
  * - Arrow keys move between items and wrap.
  * - An outside `pointerdown` closes it WITHOUT returning focus: the user has already chosen
  *   where they are going, and yanking the caret back would fight them.
+ * - Focus leaving the menu closes it, for the same reason and by the same rule: Tab from
+ *   the last item used to walk out of the card while the menu stayed painted (the
+ *   `has-[[aria-expanded=true]]` reveal keeps it on screen), so the keyboard user left a
+ *   menu open behind them with no way to tell. Added in Phase 5 as an owner-approved
+ *   exception to that phase's styling-only constraint, since it needs a handler.
  */
 export function MoreMenu({ label, items, className }: MoreMenuProps) {
   const [open, setOpen] = useState(false);
@@ -69,6 +77,23 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
       itemRefs.current[0]?.focus();
     }
   }, [open]);
+
+  /**
+   * Closes when focus lands outside the menu — the other half of the outside-pointerdown
+   * rule, for the keyboard. `relatedTarget` is where focus is GOING; it is null when
+   * focus leaves the document entirely (window blur, devtools), and that case is left
+   * open on purpose, because the menu should still be there when the user comes back.
+   */
+  function handleFocusOut(event: ReactFocusEvent<HTMLDivElement>) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && root.current?.contains(next)) {
+      return;
+    }
+    if (next === null) {
+      return;
+    }
+    setOpen(false);
+  }
 
   function closeAndRefocus() {
     setOpen(false);
@@ -105,6 +130,9 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
       // dropdown to some ancestor instead.
       className={`relative ${className ?? ""}`}
       onKeyDown={handleKeyDown}
+      // `onBlur` in React is the delegated `focusout`, so it fires for every
+      // descendant — which is what makes one handler on the root enough.
+      onBlur={handleFocusOut}
       // Belt for callers whose card is itself clickable: nothing that happens in here
       // should reach an ancestor and navigate. (NoteCard also keeps its link out of the
       // ancestor chain, so this is the second fence rather than the only one.)
@@ -118,7 +146,7 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((isOpen) => !isOpen)}
-        className="flex size-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="flex size-8 items-center justify-center rounded-control text-text-muted transition-colors hover:bg-bg hover:text-text aria-expanded:bg-bg aria-expanded:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         <MoreVertical aria-hidden="true" className="size-4" />
       </button>
@@ -128,7 +156,7 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
           id={menuId}
           role="menu"
           aria-label={label}
-          className="absolute right-0 top-9 z-20 min-w-36 overflow-hidden rounded-card border border-border bg-surface py-1 shadow-card"
+          className="animate-rise absolute right-0 top-9 z-20 min-w-40 overflow-hidden rounded-card border border-border bg-surface p-1 shadow-pop"
         >
           {items.map((item, index) => (
             <button
@@ -144,8 +172,10 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
                 setOpen(false);
                 item.onSelect();
               }}
-              className={`flex w-full items-center px-3 py-2 text-left text-sm transition-colors hover:bg-bg focus-visible:bg-bg focus-visible:outline-none ${
-                item.variant === "danger" ? "text-danger" : "text-text"
+              className={`flex w-full items-center rounded-control px-3 py-2 text-left text-sm font-medium transition-colors focus-visible:outline-none ${
+                item.variant === "danger"
+                  ? "text-danger hover:bg-danger-soft focus-visible:bg-danger-soft"
+                  : "text-text hover:bg-bg focus-visible:bg-bg"
               }`}
             >
               {item.label}

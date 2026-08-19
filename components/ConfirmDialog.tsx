@@ -33,7 +33,7 @@ interface ConfirmDialogProps {
  * on specificity. The two halves must always move together.
  */
 const DIALOG_CLASS =
-  "hidden open:flex fixed inset-0 m-0 h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-text/40";
+  "hidden open:flex fixed inset-0 m-0 h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-text/40 backdrop:backdrop-blur-[2px]";
 
 /**
  * Destructive-action confirmation. Presentational only: every string and both
@@ -88,21 +88,21 @@ export function ConfirmDialog({
       }}
       className={DIALOG_CLASS}
     >
-      <div className="w-full max-w-sm rounded-card border border-border bg-surface p-5 shadow-card">
-        <p id={titleId} className="text-base font-medium">
+      <div className="animate-rise w-full max-w-sm rounded-card border border-border bg-surface p-6 shadow-pop">
+        <p id={titleId} className="text-base font-semibold tracking-tight">
           {title}
         </p>
         {description ? (
-          <p id={descriptionId} className="mt-1 text-sm text-text-muted">
+          <p id={descriptionId} className="mt-2 text-sm leading-relaxed text-text-muted">
             {description}
           </p>
         ) : null}
-        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}
             autoFocus
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="rounded-control border border-border bg-surface px-4 py-2 text-sm font-medium transition-colors hover:border-text/15 hover:bg-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {cancelLabel}
           </button>
@@ -110,7 +110,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-lg bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
+            className="rounded-control bg-danger px-4 py-2 text-sm font-medium text-white shadow-card transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
           >
             {confirmLabel}
           </button>

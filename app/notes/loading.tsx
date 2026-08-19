@@ -13,7 +13,7 @@ export default function NotesLoading() {
   return (
     <>
       <Header actions={<SignOutButton />} />
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 sm:pt-10">
         <NotesGridSkeleton />
       </main>
     </>

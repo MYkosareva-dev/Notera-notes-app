@@ -57,14 +57,14 @@ export default async function NotePage({
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
+    <main className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:px-6 sm:pt-8">
       <Link
         href={ROUTES.notes}
-        className="text-sm text-text-muted underline-offset-4 hover:text-text hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="-ml-2 inline-flex items-center rounded-control px-2 py-1 text-sm font-medium text-text-muted transition-colors hover:bg-surface hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         {copy.common.allNotes}
       </Link>
-      <div className="mt-6">
+      <div className="mt-4">
         {/* `key` on the note id: every piece of editor state is initialized from these
             props once and never re-synced (rule B2), so the component must not be reused
             across two different notes. Whether an /notes/a -> /notes/b navigation

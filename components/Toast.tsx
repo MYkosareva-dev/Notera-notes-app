@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 
 import { copy } from "@/lib/copy";
 
@@ -271,18 +271,31 @@ export function Toaster() {
     <div
       ref={viewport}
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4"
+      className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4 sm:bottom-6"
     >
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-card border bg-surface px-4 py-3 text-sm shadow-card ${
+          // A failure notice has to carry across the screen: the danger variant gets a
+          // tinted ground, a danger-coloured hairline and ring, an icon, and semibold
+          // text — while a plain confirmation stays a quiet white card. Same component,
+          // two very different volumes (Phase 5, owner priority 1).
+          className={`animate-rise pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-card border px-4 py-3 text-sm shadow-pop ${
             toast.variant === "danger"
-              ? "border-danger text-danger"
-              : "border-border text-text"
+              ? "border-danger/40 bg-danger-soft text-danger ring-1 ring-danger/15"
+              : "border-border bg-surface text-text"
           }`}
         >
-          <span className="min-w-0 flex-1 wrap-break-word">{toast.message}</span>
+          {toast.variant === "danger" ? (
+            <AlertTriangle aria-hidden="true" className="size-4 shrink-0" />
+          ) : null}
+          <span
+            className={`min-w-0 flex-1 wrap-break-word ${
+              toast.variant === "danger" ? "font-semibold" : "font-medium"
+            }`}
+          >
+            {toast.message}
+          </span>
           {/* A filled button, never a text link. This is the only way out of the state
               the notice describes (rule B8's Retry now, G-1's Sign in), and a link-styled
               action was missed entirely on first encounter. Accent rather than danger
@@ -292,7 +305,7 @@ export function Toaster() {
             <button
               type="button"
               onClick={toast.action.onClick}
-              className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="shrink-0 rounded-control bg-accent px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {toast.action.label}
             </button>
@@ -301,7 +314,11 @@ export function Toaster() {
             type="button"
             onClick={() => dismiss(toast.id)}
             aria-label={copy.common.dismiss}
-            className="-mr-1 shrink-0 rounded p-1 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className={`-mr-1 shrink-0 rounded-control p-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+              toast.variant === "danger"
+                ? "text-danger/70 hover:text-danger"
+                : "text-text-muted hover:text-text"
+            }`}
           >
             <X aria-hidden="true" className="size-4" />
           </button>
