@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import type { FormEvent } from "react";
 
 import { signOut } from "@/app/notes/actions";
+import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 
 /**
@@ -22,7 +23,17 @@ export function SignOutButton() {
     event.preventDefault();
 
     startTransition(async () => {
-      await signOut();
+      // Through callAction, for the same reason as SignInForm: this action ALWAYS
+      // redirects, so its promise always rejects with NEXT_REDIRECT. A bare `.catch`
+      // here logged "the action never ran" on every successful sign-out — noise that
+      // also made the log useless for the case it was added for.
+      //
+      // The result is deliberately ignored. SPEC Block E's actions table says a failed
+      // sign-out shows the user nothing: offline the action cannot run, the session
+      // stays live, and the user stays where they are. Decided at the Phase 4 gate; a
+      // visible notice would change that row first — do not add one here on its own.
+      // callAction still logs the real transport failure for the developer.
+      await callAction(signOut);
     });
   }
 

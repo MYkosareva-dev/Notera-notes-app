@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
+import { ROUTES } from "@/lib/routes";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -14,8 +15,8 @@ import { createClient } from "@/lib/supabase/server";
  * What it does NOT do is suppress the render. Measured on Next 16.3.1: a
  * `redirect()` here sets the status and the Location, but the sibling page
  * component still renders into the response's RSC payload. So this file cannot be
- * what keeps note rows off the wire — that is fence 1, `lib/notes.ts` (Phase 4),
- * which calls getUser() on every operation and refuses without a user. Layouts also
+ * what keeps note rows off the wire — that is fence 1, `lib/notes.ts`, which calls
+ * getUser() on every operation and refuses without a user. Layouts also
  * do not re-run on client-side navigation, which is the second reason fence 1 is
  * the authoritative one.
  *
@@ -34,7 +35,7 @@ export default async function NotesLayout({ children }: { children: ReactNode })
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/sign-in");
+    redirect(ROUTES.signIn);
   }
 
   // No wrapper element: `body` already sets min-h-dvh (app/layout.tsx).

@@ -14,3 +14,20 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function isValidEmail(value: string): boolean {
   return EMAIL_PATTERN.test(value);
 }
+
+// Any of the eight uuid versions, case-insensitive — the shape Postgres accepts for
+// a `uuid` column, not a version assertion (the column is filled by
+// gen_random_uuid(), so v4 is what it holds; a stricter pattern would only start
+// rejecting ids the database is perfectly happy with).
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Used by the DAL on every note id that arrives from a URL or an action payload.
+ * A wrong shape is answered as "no such note" without a database round-trip
+ * (SPEC G-15) — it is not a security check: what keeps a *well-formed* foreign id
+ * from returning a row is the ownership filter plus RLS.
+ */
+export function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}

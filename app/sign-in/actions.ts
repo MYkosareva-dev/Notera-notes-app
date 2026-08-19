@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { copy } from "@/lib/copy";
+import { ROUTES } from "@/lib/routes";
 import { createClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/validation";
 
@@ -92,6 +93,6 @@ export async function signIn(formData: FormData): Promise<SignInResult> {
   // Drop every cached Server Component render made for the previous visitor
   // before navigating, then redirect. Both calls stay outside any try/catch:
   // redirect() works by throwing, so a catch would swallow the navigation.
-  revalidatePath("/", "layout");
-  redirect("/notes");
+  revalidatePath(ROUTES.home, "layout");
+  redirect(ROUTES.notes);
 }

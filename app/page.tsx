@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 
+import { ROUTES } from "@/lib/routes";
+
 // SPEC Block A: "/" redirects to "/notes"; the redirect target is what enforces
-// auth (Phase 3 adds the check).
+// auth — the workspace layout and, authoritatively, the DAL behind it.
 export default function HomePage() {
-  redirect("/notes");
+  redirect(ROUTES.notes);
 }

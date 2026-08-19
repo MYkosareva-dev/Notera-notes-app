@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 
 import { signIn } from "@/app/sign-in/actions";
+import { callAction } from "@/lib/callAction";
 import { copy } from "@/lib/copy";
 import { isValidEmail } from "@/lib/validation";
 
@@ -23,10 +24,21 @@ import { isValidEmail } from "@/lib/validation";
  * silently swallows anything typed during the round-trip, and the disabled submit
  * button already prevents a double submit.
  */
+/**
+ * Which field the inline message is about, when it is about a field at all.
+ * `aria-invalid` describes the control it sits on, so the two inputs cannot share
+ * one form-level flag — "Enter your password." must not announce the email box as
+ * invalid. A credentials rejection blames neither field on its own: it comes back
+ * as "form", and both inputs stay valid while the message is still announced
+ * through the shared `aria-describedby`.
+ */
+type InvalidField = "email" | "password" | "form";
+
 export function SignInForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [invalidField, setInvalidField] = useState<InvalidField | null>(null);
   // Default hidden: the field is a password field until the user asks otherwise.
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -41,9 +53,11 @@ export function SignInForm() {
   // the message inline.
   // Any edit clears the inline error, so a corrected field stops being announced
   // as invalid and the stale message goes away instead of waiting for the next
-  // submit. Both fields share it: the message belongs to the form, not a field.
+  // submit. Both fields share the MESSAGE — it belongs to the form — but not the
+  // `aria-invalid` state, which belongs to one control at a time.
   function clearError() {
     setError(null);
+    setInvalidField(null);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -52,28 +66,54 @@ export function SignInForm() {
     const trimmedEmail = email.trim();
     if (!isValidEmail(trimmedEmail)) {
       setError(copy.auth.invalidEmail);
+      setInvalidField("email");
       return;
     }
     if (password.length === 0) {
       setError(copy.auth.missingPassword);
+      setInvalidField("password");
       return;
     }
 
-    setError(null);
+    clearError();
 
     const formData = new FormData();
     formData.set("email", trimmedEmail);
     formData.set("password", password);
 
     startTransition(async () => {
-      const result = await signIn(formData);
-      // Reached on failure only: a successful sign-in redirects, so the call
-      // navigates instead of resolving with a value — hence the optional chain.
-      if (result?.error) {
+      // Three outcomes, not two. `callAction` is what separates them:
+      //
+      //   { error }            the action RAN and refused — wrong credentials, rate
+      //                        limit, or Auth unreachable from the server. Message
+      //                        already chosen server-side.
+      //   { ok: true }         the action ran and redirected. Nothing to do: the
+      //                        router is already navigating to /notes.
+      //   { ok: false }        the action never ran (offline, dev server down).
+      //
+      // The middle case is why this call cannot use a bare `.catch`. `redirect()`
+      // REJECTS the client promise with NEXT_REDIRECT, so a catch-all read every
+      // successful sign-in as a failure: it rendered copy.errors.generic and wiped the
+      // password for the two frames before the navigation landed — a red flash on every
+      // correct password. Measured on throwaway probe routes: ~2 ms of error, then the
+      // redirect. `callAction` reports that signal as success instead.
+      const result = await callAction(() => signIn(formData));
+
+      if ("error" in result) {
         // US1 step 2: the form stays filled except the password.
         setPassword("");
         setPasswordVisible(false);
         setError(result.error);
+        setInvalidField("form");
+        return;
+      }
+
+      if (!result.ok) {
+        // SPEC G-7's copy, for the case where the request never left the browser. The
+        // password is deliberately KEPT here, unlike a refusal: nothing was submitted,
+        // so there is nothing to re-type once the connection is back.
+        setError(copy.errors.generic);
+        setInvalidField("form");
       }
     });
   }
@@ -98,7 +138,7 @@ export function SignInForm() {
             setEmail(event.target.value);
             clearError();
           }}
-          aria-invalid={error !== null}
+          aria-invalid={invalidField === "email"}
           aria-describedby={error === null ? undefined : errorId}
           className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
         />
@@ -118,7 +158,7 @@ export function SignInForm() {
               setPassword(event.target.value);
               clearError();
             }}
-            aria-invalid={error !== null}
+            aria-invalid={invalidField === "password"}
             aria-describedby={error === null ? undefined : errorId}
             className="w-full rounded-lg border border-border bg-surface py-2 pl-3 pr-10 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
           />

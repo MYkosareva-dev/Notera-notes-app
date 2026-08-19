@@ -247,6 +247,19 @@ The feel: calm, paper-like, closer to Bear or Linear than to a colorful
 dashboard. Improve visual polish of every existing screen and state (including
 skeleton, empty, error, sign-in).
 
+Owner priorities for this pass, in order:
+1. Save-status visibility. The "Saving… / Saved" indicator and every
+   save-failure notice (the retry toast and the persistent banner with Retry
+   now) must be noticeable without hunting: move the status near the content
+   being edited (e.g. top of the editor column or sticky), not buried in the
+   footer, and make failure states visually loud (color, weight) while success
+   stays quiet. Autosave itself stays exactly as built — styling and placement
+   only, no logic changes.
+2. The editor must read as an editor, not a bare page: a visible note area
+   (subtle card/backdrop under title + content), clear placeholders, a
+   distinct title zone.
+3. Everything else from the general brief above.
+
 Hard constraint: this diff may touch ONLY styling — class names, tokens, layout
 markup. Zero changes to logic, actions, queries, copy strings, or auth files.
 If a visual fix seems to require a logic change, list it for me instead of

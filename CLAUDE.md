@@ -88,3 +88,13 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
     not a backlog.
 18. `README.md` and this file must never promise behavior the code does not have.
     If code and docs diverge, fix one of them in the same change.
+
+19. **WORKLOG.md is the owner's private file — never read it.** It is gitignored
+    and off-limits to the agent regardless of what task is in progress. The same
+    applies to any credential store: gitignore is not an access boundary, but
+    this rule is.
+20. **Never use the owner's credentials.** Test-account passwords are never
+    given to the agent, never read from any file, and never typed by the agent
+    into any form. Any verification that requires a real sign-in belongs to the
+    owner. If a task seems to require credentials, stop and ask — the answer
+    will be a redesign of the task, not the credentials.

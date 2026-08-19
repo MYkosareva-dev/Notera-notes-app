@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ROUTES, isWorkspacePath } from "@/lib/routes";
+
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
 
 /**
@@ -34,14 +36,6 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
  * render on the common case and keep the address bar honest. Deleting them must
  * leave the workspace just as private — that is the property the real fences own.
  */
-
-const SIGN_IN_PATH = "/sign-in";
-const WORKSPACE_PATH = "/notes";
-
-/** True for `/notes` and everything under it, false for lookalikes (`/notesx`). */
-function isWorkspacePath(pathname: string): boolean {
-  return pathname === WORKSPACE_PATH || pathname.startsWith(`${WORKSPACE_PATH}/`);
-}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -94,11 +88,11 @@ export async function updateSession(request: NextRequest) {
   const isNavigation = request.method === "GET";
 
   if (isNavigation && !user && isWorkspacePath(pathname)) {
-    return redirectTo(SIGN_IN_PATH, request, supabaseResponse, refreshHeaders);
+    return redirectTo(ROUTES.signIn, request, supabaseResponse, refreshHeaders);
   }
 
-  if (isNavigation && user && pathname === SIGN_IN_PATH) {
-    return redirectTo(WORKSPACE_PATH, request, supabaseResponse, refreshHeaders);
+  if (isNavigation && user && pathname === ROUTES.signIn) {
+    return redirectTo(ROUTES.notes, request, supabaseResponse, refreshHeaders);
   }
 
   // Return this response object as-is. Building a fresh NextResponse here — or
