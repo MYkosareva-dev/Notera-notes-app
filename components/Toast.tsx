@@ -18,17 +18,48 @@ const TOAST_DURATION_MS = 4000;
 
 export type ToastVariant = "default" | "danger";
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
+export interface ToastOptions {
+  variant?: ToastVariant;
+  /**
+   * `"persistent"` is SPEC rule B8's banner and edge case G-1's session notice:
+   * a toast that stays until the user acts on it or dismisses it. There is no
+   * separate Banner component on purpose — SPEC Block E's component table
+   * sanctions none, and one queue means two notices cannot overlap on screen.
+   */
+  duration?: number | "persistent";
+  /** Rendered as a button beside the message, e.g. B8's "Retry now". */
+  action?: ToastAction;
+  /**
+   * Dedupe key. A second toast with the same key REPLACES the first in place
+   * instead of stacking — what B8's retry ×3 needs (one notice, updated three
+   * times) and what Block F means by "toast once" for the cap messages.
+   *
+   * Replacing is also why an action click does not auto-dismiss: the caller
+   * usually answers its own action with a same-key toast, and dismissing here
+   * would race that update. Lifecycle stays with the caller.
+   */
+  key?: string;
+}
+
 interface ToastItem {
   id: number;
   message: string;
   variant: ToastVariant;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
   toasts: readonly ToastItem[];
   /** Queue a toast. Message text always comes from lib/copy.ts (rule 10). */
-  showToast: (message: string, variant?: ToastVariant) => void;
+  showToast: (message: string, options?: ToastOptions) => void;
   dismiss: (id: number) => void;
+  /** Dismiss by dedupe key — for a notice whose condition has cleared. */
+  dismissKey: (key: string) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -49,33 +80,80 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
   const lastId = useRef(0);
   const timers = useRef<Map<number, number>>(new Map());
+  // Which id currently belongs to which dedupe key.
+  const keyedIds = useRef<Map<string, number>>(new Map());
 
-  const dismiss = useCallback((id: number) => {
+  const clearTimer = useCallback((id: number) => {
     const timer = timers.current.get(id);
     if (timer !== undefined) {
       window.clearTimeout(timer);
       timers.current.delete(id);
     }
-    // Return the same array when the id is already gone, so a late timer does
-    // not commit a pointless re-render of every consumer.
-    setToasts((current) =>
-      current.some((toast) => toast.id === id)
-        ? current.filter((toast) => toast.id !== id)
-        : current,
-    );
   }, []);
 
-  const showToast = useCallback(
-    (message: string, variant: ToastVariant = "default") => {
-      lastId.current += 1;
-      const id = lastId.current;
-      setToasts((current) => [...current, { id, message, variant }]);
-      timers.current.set(
-        id,
-        window.setTimeout(() => dismiss(id), TOAST_DURATION_MS),
+  const dismiss = useCallback(
+    (id: number) => {
+      clearTimer(id);
+      keyedIds.current.forEach((keyedId, key) => {
+        if (keyedId === id) {
+          keyedIds.current.delete(key);
+        }
+      });
+      // Return the same array when the id is already gone, so a late timer does
+      // not commit a pointless re-render of every consumer.
+      setToasts((current) =>
+        current.some((toast) => toast.id === id)
+          ? current.filter((toast) => toast.id !== id)
+          : current,
       );
     },
+    [clearTimer],
+  );
+
+  const dismissKey = useCallback(
+    (key: string) => {
+      const id = keyedIds.current.get(key);
+      if (id !== undefined) {
+        dismiss(id);
+      }
+    },
     [dismiss],
+  );
+
+  const showToast = useCallback(
+    (message: string, options?: ToastOptions) => {
+      const {
+        variant = "default",
+        duration = TOAST_DURATION_MS,
+        action,
+        key,
+      } = options ?? {};
+
+      // Reuse the id the key already owns, so the notice updates where it stands.
+      const existingId = key === undefined ? undefined : keyedIds.current.get(key);
+      const id = existingId ?? (lastId.current += 1);
+      if (existingId !== undefined) {
+        clearTimer(existingId);
+      }
+      if (key !== undefined) {
+        keyedIds.current.set(key, id);
+      }
+
+      const next: ToastItem = { id, message, variant, action };
+      setToasts((current) =>
+        current.some((toast) => toast.id === id)
+          ? current.map((toast) => (toast.id === id ? next : toast))
+          : [...current, next],
+      );
+
+      if (duration !== "persistent") {
+        timers.current.set(
+          id,
+          window.setTimeout(() => dismiss(id), duration),
+        );
+      }
+    },
+    [clearTimer, dismiss],
   );
 
   useEffect(() => {
@@ -87,8 +165,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<ToastContextValue>(
-    () => ({ toasts, showToast, dismiss }),
-    [toasts, showToast, dismiss],
+    () => ({ toasts, showToast, dismiss, dismissKey }),
+    [toasts, showToast, dismiss, dismissKey],
   );
 
   return <ToastContext value={value}>{children}</ToastContext>;
@@ -113,11 +191,20 @@ export function Toaster() {
           }`}
         >
           <span className="min-w-0 flex-1 wrap-break-word">{toast.message}</span>
+          {toast.action === undefined ? null : (
+            <button
+              type="button"
+              onClick={toast.action.onClick}
+              className="shrink-0 font-medium text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              {toast.action.label}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => dismiss(toast.id)}
             aria-label={copy.common.dismiss}
-            className="-mr-1 rounded p-1 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="-mr-1 shrink-0 rounded p-1 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <X aria-hidden="true" className="size-4" />
           </button>

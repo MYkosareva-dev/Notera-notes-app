@@ -5,13 +5,47 @@ import { cookies } from "next/headers";
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
 
-const REFRESH_TOKEN_GRANT = "grant_type=refresh_token";
+/**
+ * The one call this client declines: POST {SUPABASE_URL}/auth/v1/token?grant_type=refresh_token.
+ *
+ * Matched by parsed origin + pathname + query parameter, never by a substring of
+ * the whole URL. The substring form was correct while auth was the only traffic
+ * through this fetch, but from Phase 4 the same `fetch` also carries every
+ * PostgREST query the DAL issues — note titles, content and tag filter values all
+ * travel in the query string. A false positive there is not an auth error: it is a
+ * data query answered with a synthetic 400, i.e. a note that silently fails to
+ * load or save. (No note text could actually produce the old match — PostgREST
+ * percent-encodes `=` to `%3D` — but "no input can currently reach it" is a much
+ * weaker guarantee than "the match names the endpoint".)
+ */
+const TOKEN_ENDPOINT_PATH = "/auth/v1/token";
+const REFRESH_TOKEN_GRANT = "refresh_token";
+const AUTH_ORIGIN = new URL(SUPABASE_URL).origin;
+
+/** The machine-readable code the refusal below carries; see its docblock. */
+const REFRESH_DECLINED_CODE = "refresh_not_permitted_in_this_context";
 
 function requestedUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") {
     return input;
   }
   return input instanceof URL ? input.href : input.url;
+}
+
+function isTokenRotation(input: RequestInfo | URL): boolean {
+  let url: URL;
+  try {
+    url = new URL(requestedUrl(input));
+  } catch {
+    // A relative URL can only be an app-internal request, never a Supabase one.
+    return false;
+  }
+
+  return (
+    url.origin === AUTH_ORIGIN &&
+    url.pathname === TOKEN_ENDPOINT_PATH &&
+    url.searchParams.get("grant_type") === REFRESH_TOKEN_GRANT
+  );
 }
 
 /**
@@ -47,7 +81,7 @@ function requestedUrl(input: RequestInfo | URL): string {
  * rendered — user-visible copy still lives only in lib/copy.ts (rule 10).
  */
 const fetchWithoutTokenRotation: typeof fetch = (input, init) => {
-  if (!requestedUrl(input).includes(REFRESH_TOKEN_GRANT)) {
+  if (!isTokenRotation(input)) {
     return fetch(input, init);
   }
 
@@ -55,11 +89,13 @@ const fetchWithoutTokenRotation: typeof fetch = (input, init) => {
     new Response(
       JSON.stringify({
         error: "invalid_grant",
-        error_code: "refresh_not_permitted_in_this_context",
-        // Opaque on purpose: this becomes AuthError.message, and an internal file
-        // path should not be one stray render away from a user's screen. The
-        // error_code above is the part anything downstream should read.
-        msg: "Refresh not permitted in this context.",
+        error_code: REFRESH_DECLINED_CODE,
+        // `msg` becomes AuthError.message. It carries the code, not a sentence:
+        // a well-formed English message is a user-facing shape living outside
+        // lib/copy.ts (rule 10), one stray `{error.message}` render away from a
+        // screen. Anything downstream that branches on this failure reads
+        // error_code.
+        msg: REFRESH_DECLINED_CODE,
       }),
       { status: 400, headers: { "content-type": "application/json" } },
     ),

@@ -293,12 +293,15 @@ Design language is carried over from Notera: neutral surface, generous spacing, 
 - Layout: narrow column (max-w-2xl); back link "← All notes" top; title as borderless `input` (text-2xl, semibold); `TagEditor` chips row; content `textarea` (min-h 60dvh, borderless); footer row: muted "Saved"/"Saving…" indicator left, **Delete** (danger, ghost) right.
 - **Editor state rule:** title, content and tags are **local component state**, initialized from the server-fetched note; changes are pushed by a 300 ms debounced Server Action call (rule B2). Never bind inputs directly to server round-trips.
 - States: **Loading** — skeleton (title bar + 8 text lines); **Empty** — an empty note is a valid state, placeholder text "Untitled" / "Start writing…"; **Error** — save failure per US3 step 3; load failure or foreign/unknown id → `not-found.tsx`: "This note doesn't exist (anymore)." + link "← All notes".
-- Actions: Delete → `ConfirmDialog` (copy in US4) → Server Action → redirect `/notes` + toast "Note deleted."
+- Actions: Delete → `ConfirmDialog` (copy in US4) → Server Action → `/notes` + toast "Note deleted."
+> Decision: the delete NAVIGATION is performed by the client once the action resolves, not by `redirect()` inside the action. A Server Action that redirects never returns its result, so the "Note deleted." toast would have to be shown before the row was gone — a guess that would also fire on a failed delete. The action returns `{ ok }`, the caller toasts and then navigates; user-visible behaviour is unchanged. `createNote` keeps `redirect()` in the action, because its success needs no toast.
+> Decision (measured, Next 16.3.1): with a `loading.tsx` above this route, `notFound()` renders `not-found.tsx` with HTTP **200**, not 404 — the Suspense boundary lets the shell flush, which commits the status before the fetch resolves. Isolated on a scratch route: same page, 404 with no loading boundary above it, 200 with one. It is inherent rather than a bug to work around — a skeleton means "not fetched yet", a 404 means "fetched, absent", and a status cannot be streamed. Both are specified here, and every acceptance box names the SCREEN, so both stay and the status is recorded as known. To trade it the other way, drop `app/notes/loading.tsx` and `app/notes/[id]/loading.tsx` (a parent boundary reaches nested routes) and fetch before rendering.
 
 ### Components
 | Component | Base | Notes |
 |---|---|---|
-| Header, EmptyState, ConfirmDialog, Toast | carried from Notera | restyle only |
+| Header, EmptyState, ConfirmDialog | carried from Notera | restyle only |
+| Toast | carried from Notera, extended in Phase 4 | `showToast(message, { variant, duration, action, key })`. `duration: "persistent"` **is** rule B8's banner and edge case G-1's session notice — one queue, so two notices cannot overlap; `action` carries **Retry now** / **Sign in**; `key` dedupes, so the retry ladder updates one notice instead of stacking four and a cap message toasts once. No separate `Banner` component: this table sanctions none, and rule 17 makes that a prohibition. |
 | TagEditor | Notera `LabelEditor` descendant | Enter commits, × removes, cap per `LIMITS.tagsPerNote` |
 | NoteCard, TagFilter, Skeletons, SignInForm, NoteEditor | new | per specs above |
 
@@ -327,7 +330,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 - **B5 — Copy from one home.** Every user-visible string lives in `lib/copy.ts`; numbers in copy are derived from `LIMITS`.
 - **B6 — No web storage.** No note data, session data or derived cache in `localStorage`/`sessionStorage`.
 - **B7 — Hard cap.** Creating a note beyond `LIMITS.notesPerUser` is blocked with "You've reached the limit of {n} notes."
-- **B8 — Save feedback.** Failed save: retry ×3 (1 s / 2 s / 4 s), toast "Couldn't save. Retrying…", then persistent banner with **Retry now**.
+- **B8 — Save feedback.** Failed save: retry ×3 (1 s / 2 s / 4 s), toast "Couldn't save. Retrying…", then persistent banner with **Retry now** — delivered as Toast's `duration: "persistent"` variant (Block E component table), all four steps sharing one dedupe key so the user sees one notice, not four. The three failures are told apart by a discriminated result, not a message: retryable (this rule), session expired (G-1) and note gone (G-13) need different behaviour.
 
 ### Auth flows
 **Sign-in:** `/sign-in` form → Server Action `signIn(formData)` → `createServerClient` → `auth.signInWithPassword({email, password})` → on error return `{ error: copy.auth.badCredentials }` → on success `redirect("/notes")`. Cookies are set by the `@supabase/ssr` client.

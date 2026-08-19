@@ -6,6 +6,11 @@ import { LIMITS } from "./types";
 
 const formatNumber = (value: number): string => value.toLocaleString("en-US");
 
+// Two screens need this exact word: the submit button on the sign-in form, and the
+// action on the "session expired" notice the editor raises mid-edit (SPEC G-1).
+// One constant rather than the same literal twice (rule 11).
+const SIGN_IN_LABEL = "Sign in";
+
 export const copy = {
   app: {
     name: "Notera Notes",
@@ -25,7 +30,7 @@ export const copy = {
   auth: {
     emailLabel: "Email",
     passwordLabel: "Password",
-    submit: "Sign in",
+    submit: SIGN_IN_LABEL,
     // aria-labels for the show/hide control on the password field. The button has
     // no text of its own, so these are its accessible name.
     showPassword: "Show password",
@@ -56,9 +61,49 @@ export const copy = {
   },
 
   notes: {
+    newNote: "New note",
+    // Shown in place of an empty title, muted, in the list AND as the editor's
+    // title placeholder (SPEC G-16). The stored value stays "".
+    untitled: "Untitled",
     empty: {
       title: "No notes yet.",
       description: "Create your first note to get started.",
+    },
+    // SPEC Block E: the /notes error card, paired with common.tryAgain.
+    loadError: "Couldn't load your notes.",
+    createError: "Couldn't create the note. Try again.",
+    deleted: "Note deleted.",
+    // SPEC G-13: the note was removed elsewhere (another tab, the SQL editor)
+    // while this screen still showed it.
+    gone: "This note no longer exists.",
+
+    editor: {
+      // Accessible names for the two borderless fields: SPEC Block E gives them a
+      // placeholder and no visible label, and a placeholder is not a label.
+      titleLabel: "Note title",
+      contentLabel: "Note content",
+      contentPlaceholder: "Start writing…",
+      saving: "Saving…",
+      saved: "Saved",
+    },
+
+    // Save feedback, SPEC rule B8 and edge case G-1. `retrying` is the toast that
+    // accompanies the three backoff attempts; `failed` is the persistent notice
+    // that follows them, with `retryNow` as its action.
+    save: {
+      retrying: "Couldn't save. Retrying…",
+      failed: "Couldn't save your changes.",
+      retryNow: "Retry now",
+      sessionExpired: "Your session expired.",
+      signIn: SIGN_IN_LABEL,
+    },
+
+    // Destructive confirmation, SPEC US4 step 2 — exact wording.
+    delete: {
+      action: "Delete",
+      confirmTitle: "Delete this note? This can't be undone.",
+      confirm: "Delete",
+      cancel: "Cancel",
     },
   },
 
@@ -71,12 +116,5 @@ export const copy = {
     tagDuplicate: "This tag is already on the note.",
     tooManyTags: `A note can have up to ${formatNumber(LIMITS.tagsPerNote)} tags.`,
     tooManyNotes: `You've reached the limit of ${formatNumber(LIMITS.notesPerUser)} notes.`,
-  },
-
-  // Temporary string for the Phase 1 scaffold. The sign-in screen landed in
-  // Phase 3 and no longer uses it; the last caller is the note editor route,
-  // which replaces it in Phase 4.
-  placeholder: {
-    comingSoon: "This screen arrives in a later build phase.",
   },
 } as const;
