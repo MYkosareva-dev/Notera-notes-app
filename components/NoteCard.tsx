@@ -73,7 +73,7 @@ export function NoteCard({ note }: { note: NoteView }) {
   const name = hasTitle ? note.title : copy.notes.untitled;
 
   return (
-    <div className="group relative flex min-w-0 flex-col rounded-card border border-border bg-surface p-4 shadow-card transition-colors hover:border-accent">
+    <div className="group relative flex min-w-0 flex-col rounded-card border border-border bg-surface p-5 shadow-card transition-[box-shadow,border-color] duration-200 hover:border-text/15 hover:shadow-card-hover">
       {/* The whole-card target. Focus styling lives here, so the ring traces the card. */}
       <Link
         href={notePath(note.id)}
@@ -83,31 +83,47 @@ export function NoteCard({ note }: { note: NoteView }) {
 
       <div className="flex min-w-0 items-start justify-between gap-2">
         <p
-          className={`min-w-0 flex-1 truncate text-sm font-medium ${
-            hasTitle ? "" : "text-text-muted italic"
+          className={`min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-tight ${
+            hasTitle ? "" : "font-medium text-text-muted italic"
           }`}
         >
           {name}
         </p>
         {/*
-          Revealed on hover at desktop, always visible at 375 where there is no hover to
-          reveal it with. `group-focus-within` keeps it reachable by keyboard, and
+          Revealed on hover, always visible where the input has no hover to reveal it
+          with. The resting `opacity-0` is gated on `can-hover` — a MEDIA QUERY on the
+          pointer, not on the viewport width (globals.css). It used to be `sm:`, which
+          left the trigger invisible-but-tappable in the corner of every card on any
+          touch screen wider than 640 px: a tap there opened a menu the user could not
+          see. `group-focus-within` keeps it reachable by keyboard, and
           `has-[[aria-expanded=true]]` keeps an OPEN menu on screen after the pointer
           leaves the card — otherwise moving the mouse to the menu's own items would
           fade the thing you are aiming at.
         */}
+        {/*
+          NO `z-10` HERE, deliberately. It used to be, and it was what put an open menu
+          BEHIND the sticky header: `relative` + a z-index makes the menu's root a
+          stacking context, which traps the dropdown's own z-index inside it — so the
+          dropdown could never rise above anything the root could not. It does not need
+          one: MoreMenu's root is `relative`, the card-wide link is `absolute`, both are
+          positioned at `z-auto`, and the root comes LATER in the DOM, so it already
+          paints (and hit-tests) above the link. See MoreMenu for the other half.
+        */}
         <NoteCardMenu
           noteId={note.id}
-          className="z-10 -mr-1 -mt-1 shrink-0 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:has-[[aria-expanded=true]]:opacity-100"
+          className="-mr-1.5 -mt-1.5 shrink-0 transition-opacity can-hover:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"
         />
       </div>
 
       {note.content.trim().length > 0 ? (
-        <p className="mt-2 line-clamp-2 text-sm text-text-muted wrap-break-word whitespace-pre-line">
+        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-text-muted wrap-break-word whitespace-pre-line">
           {note.content}
         </p>
       ) : null}
-      <time dateTime={note.updated_at} className="mt-4 text-xs text-text-muted">
+      {/* `mt-auto` rather than a fixed margin: grid items stretch to the tallest
+          card in the row, so the timestamps line up along the bottom edge instead
+          of floating at three different heights. */}
+      <time dateTime={note.updated_at} className="mt-auto pt-5 text-xs text-text-muted">
         {relativeFrom(note.updated_at)}
       </time>
     </div>

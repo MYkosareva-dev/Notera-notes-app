@@ -119,9 +119,9 @@ export function SignInForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={emailId} className="text-sm font-medium">
+        <label htmlFor={emailId} className="text-sm font-medium text-text">
           {copy.auth.emailLabel}
         </label>
         {/* No `name`: the values are read from state in handleSubmit, so a name
@@ -140,12 +140,12 @@ export function SignInForm() {
           }}
           aria-invalid={invalidField === "email"}
           aria-describedby={error === null ? undefined : errorId}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
+          className="w-full rounded-control border border-border bg-bg px-3 py-2.5 text-sm transition-colors outline-none placeholder:text-text-muted/70 hover:border-text/15 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent-soft aria-[invalid=true]:border-danger aria-[invalid=true]:ring-danger/15"
         />
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={passwordId} className="text-sm font-medium">
+        <label htmlFor={passwordId} className="text-sm font-medium text-text">
           {copy.auth.passwordLabel}
         </label>
         <div className="relative">
@@ -160,7 +160,7 @@ export function SignInForm() {
             }}
             aria-invalid={invalidField === "password"}
             aria-describedby={error === null ? undefined : errorId}
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-3 pr-10 text-sm outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-soft"
+            className="w-full rounded-control border border-border bg-bg py-2.5 pl-3 pr-11 text-sm transition-colors outline-none placeholder:text-text-muted/70 hover:border-text/15 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent-soft aria-[invalid=true]:border-danger aria-[invalid=true]:ring-danger/15"
           />
           {/* type="button": inside a form a bare <button> submits, which would
               fire a sign-in attempt on every reveal. */}
@@ -171,7 +171,7 @@ export function SignInForm() {
               passwordVisible ? copy.auth.hidePassword : copy.auth.showPassword
             }
             aria-pressed={passwordVisible}
-            className="absolute inset-y-0 right-0 flex items-center px-3 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="absolute inset-y-0 right-0 flex items-center rounded-r-control px-3 text-text-muted transition-colors hover:text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {passwordVisible ? (
               <EyeOff aria-hidden="true" className="size-4" />
@@ -185,7 +185,7 @@ export function SignInForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
+        className="mt-1 flex w-full items-center justify-center gap-2 rounded-control bg-accent px-4 py-2.5 text-sm font-medium text-white shadow-card transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
       >
         {isPending ? (
           <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
@@ -196,7 +196,11 @@ export function SignInForm() {
       {/* Inline error under the form, SPEC Block E. role="alert" so a screen
           reader announces it without moving focus away from the field. */}
       {error === null ? null : (
-        <p id={errorId} role="alert" className="text-sm text-danger">
+        <p
+          id={errorId}
+          role="alert"
+          className="rounded-control bg-danger-soft px-3 py-2 text-sm font-medium text-danger ring-1 ring-danger/20"
+        >
           {error}
         </p>
       )}

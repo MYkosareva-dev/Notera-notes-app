@@ -48,7 +48,7 @@ export default async function NotesPage() {
           </>
         }
       />
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6 sm:pt-10">
         {notes === null ? (
           <ErrorCard title={copy.notes.loadError} />
         ) : notes.length === 0 ? (
@@ -58,7 +58,7 @@ export default async function NotesPage() {
             action={<NewNoteButton />}
           />
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {notes.map((note) => (
               <NoteCard key={note.id} note={note} />
             ))}
