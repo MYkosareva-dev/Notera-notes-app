@@ -51,6 +51,29 @@ interface ToastItem {
   message: string;
   variant: ToastVariant;
   action?: ToastAction;
+  persistent: boolean;
+}
+
+/**
+ * True when re-showing this toast would change nothing on screen AND there is no timer
+ * to restart — which is only the case for a persistent notice with identical content.
+ *
+ * It exists so a caller may re-show a persistent notice as often as it likes (NoteEditor
+ * does it on every keystroke while saving is suspended, so dismissing the notice cannot
+ * strand the user) without re-rendering the viewport each time.
+ *
+ * Actions are compared by LABEL, not by function identity: a caller building the toast
+ * fresh each time passes a new closure every call, so identity would never match. The
+ * label is what the user sees, and every label comes from lib/copy.ts.
+ */
+function isNoOpReshow(existing: ToastItem, next: ToastItem): boolean {
+  return (
+    existing.persistent &&
+    next.persistent &&
+    existing.message === next.message &&
+    existing.variant === next.variant &&
+    (existing.action?.label ?? null) === (next.action?.label ?? null)
+  );
 }
 
 interface ToastContextValue {
@@ -139,12 +162,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         keyedIds.current.set(key, id);
       }
 
-      const next: ToastItem = { id, message, variant, action };
-      setToasts((current) =>
-        current.some((toast) => toast.id === id)
+      const next: ToastItem = {
+        id,
+        message,
+        variant,
+        action,
+        persistent: duration === "persistent",
+      };
+      setToasts((current) => {
+        const existing = current.find((toast) => toast.id === id);
+        if (existing !== undefined && isNoOpReshow(existing, next)) {
+          return current;
+        }
+        return existing !== undefined
           ? current.map((toast) => (toast.id === id ? next : toast))
-          : [...current, next],
-      );
+          : [...current, next];
+      });
 
       if (duration !== "persistent") {
         timers.current.set(

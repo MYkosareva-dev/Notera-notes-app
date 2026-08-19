@@ -39,6 +39,11 @@ import type { ActionResult, NoteFailure, NotePatch, NoteView } from "@/lib/types
  *   here as `unavailable`, because every action call goes through `callAction`: an
  *   action that never ran rejects rather than returning, and an `await` on it would
  *   otherwise take the whole save engine down with it (see that file).
+ * - A notice the user dismissed with × must not strand them. Saving stays suspended,
+ *   so the next edit RE-SURFACES the same notice (one dedupe key, so it never stacks).
+ *   Without that, dismissing the banner left the only way back — Retry now — nowhere on
+ *   screen, with the footer still saying the save had failed and a reload the only exit,
+ *   which is the one action that would lose the text.
  * - After the ladder is spent the engine STOPS on purpose and waits for **Retry now**.
  *   Rule B8 ends in a user-driven affordance, so continuing to fire a save on every
  *   keystroke against a network that is still down would be both unspecced and
@@ -67,6 +72,9 @@ const RETRY_BACKOFF_MS = [1_000, 2_000, 4_000] as const;
 const SAVE_TOAST_KEY = "note-save";
 const TITLE_LIMIT_TOAST_KEY = "title-limit";
 const CONTENT_LIMIT_TOAST_KEY = "content-limit";
+
+/** Why saving stopped. Both cases are user-driven from here on (rule B8, G-1). */
+type SuspendedReason = "retriesSpent" | "sessionExpired";
 
 interface Draft {
   title: string;
@@ -111,11 +119,17 @@ export function NoteEditor({ note }: { note: NoteView }) {
   const inFlight = useRef(false);
   const mounted = useRef(true);
   /**
-   * Set when the retry ladder is spent, or when retrying cannot help (an expired
-   * session). Automatic saving stops until **Retry now** clears it — the text stays
-   * on screen and in `draft` throughout, so nothing is lost by waiting.
+   * Why automatic saving is suspended, or null when it is not. A reason rather than a
+   * flag because the two cases put a different notice on screen, and any edit made while
+   * suspended has to be able to put THAT notice back (the user may have dismissed it).
+   * The text stays on screen and in `draft` throughout, so nothing is lost by waiting.
    */
-  const suspended = useRef(false);
+  const suspendedFor = useRef<SuspendedReason | null>(null);
+  /**
+   * The Retry-now handler, held in a ref because the notice that offers it is built
+   * before `attemptSave` exists in this scope. Assigned in an effect below.
+   */
+  const retryNow = useRef<() => void>(() => {});
   /**
    * Set when this note is deliberately left behind — deleted, or found to be gone.
    * It stops the unmount flush from re-saving a row that should not come back and
@@ -137,22 +151,51 @@ export function NoteEditor({ note }: { note: NoteView }) {
     clearTimer(retryTimer);
   }, []);
 
+  /**
+   * Puts the suspended-state notice on screen. Idempotent: re-showing it with identical
+   * content is a no-op inside the Toast provider, so calling this per keystroke costs
+   * nothing while still undoing a dismissal.
+   */
+  const showSuspendedNotice = useCallback(
+    (reason: SuspendedReason) => {
+      const expired = reason === "sessionExpired";
+      showToast(expired ? copy.notes.save.sessionExpired : copy.notes.save.failed, {
+        variant: "danger",
+        duration: "persistent",
+        key: SAVE_TOAST_KEY,
+        action: expired
+          ? {
+              label: copy.notes.save.signIn,
+              onClick: () => router.push(ROUTES.signIn),
+            }
+          : {
+              label: copy.notes.save.retryNow,
+              onClick: () => retryNow.current(),
+            },
+      });
+    },
+    [router, showToast],
+  );
+
+  /** Stops automatic saving and says so, on screen and in the footer. */
+  const suspend = useCallback(
+    (reason: SuspendedReason) => {
+      suspendedFor.current = reason;
+      clearTimer(debounceTimer);
+      clearTimer(maxWaitTimer);
+      setSaveState("failed");
+      showSuspendedNotice(reason);
+    },
+    [showSuspendedNotice],
+  );
+
   const notifyFailure = useCallback(
     (failure: NoteFailure) => {
       if (failure === "sessionExpired") {
         // SPEC G-1. Persistent, because there is nothing the app can retry on the
         // user's behalf — and their text stays on screen while they decide. Saving
         // stops too: every further attempt would fail identically and silently.
-        suspended.current = true;
-        showToast(copy.notes.save.sessionExpired, {
-          variant: "danger",
-          duration: "persistent",
-          key: SAVE_TOAST_KEY,
-          action: {
-            label: copy.notes.save.signIn,
-            onClick: () => router.push(ROUTES.signIn),
-          },
-        });
+        suspend("sessionExpired");
         return;
       }
 
@@ -169,7 +212,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
       // happen, so reaching here means a payload this UI did not send.
       showToast(copy.errors.generic, { variant: "danger", key: SAVE_TOAST_KEY });
     },
-    [clearSaveTimers, router, showToast],
+    [clearSaveTimers, router, showToast, suspend],
   );
 
   /**
@@ -206,7 +249,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
 
       if (result.ok) {
         saved.current = sent;
-        suspended.current = false;
+        suspendedFor.current = null;
         dismissKey(SAVE_TOAST_KEY);
         // Anything typed while this was in flight is now the difference; save it.
         if (diff(draft.current, saved.current) === null) {
@@ -227,24 +270,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
       if (backoff === undefined) {
         // Retries exhausted (rule B8): stop, say so, and hand the next move to the
         // user. The draft is untouched, so Retry now resumes from the current text.
-        suspended.current = true;
-        clearTimer(debounceTimer);
-        clearTimer(maxWaitTimer);
-        setSaveState("failed");
-        showToast(copy.notes.save.failed, {
-          variant: "danger",
-          duration: "persistent",
-          key: SAVE_TOAST_KEY,
-          action: {
-            label: copy.notes.save.retryNow,
-            onClick: () => {
-              suspended.current = false;
-              setSaveState("saving");
-              showToast(copy.notes.save.retrying, { key: SAVE_TOAST_KEY });
-              void attemptSave(0);
-            },
-          },
-        });
+        suspend("retriesSpent");
         return;
       }
 
@@ -256,15 +282,26 @@ export function NoteEditor({ note }: { note: NoteView }) {
         void attemptSave(attempt + 1);
       }, backoff);
     },
-    [dismissKey, note.id, notifyFailure, showToast],
+    [dismissKey, note.id, notifyFailure, showToast, suspend],
   );
+
+  // Retry now: leave the suspended state and try again from the current draft. Held in
+  // a ref so `showSuspendedNotice` can offer it without depending on `attemptSave`.
+  useEffect(() => {
+    retryNow.current = () => {
+      suspendedFor.current = null;
+      setSaveState("saving");
+      showToast(copy.notes.save.retrying, { key: SAVE_TOAST_KEY });
+      void attemptSave(0);
+    };
+  }, [attemptSave, showToast]);
 
   /** Fires the debounce/maxWait timers' payload. */
   const flush = useCallback(() => {
     clearTimer(debounceTimer);
     clearTimer(maxWaitTimer);
 
-    if (abandoned.current || suspended.current) {
+    if (abandoned.current || suspendedFor.current !== null) {
       return;
     }
     // A save is already on the wire, or a retry is already scheduled. Either one
@@ -288,9 +325,16 @@ export function NoteEditor({ note }: { note: NoteView }) {
     // path itself.
     setSaveState((current) => (current === "failed" ? "failed" : "saving"));
 
-    // Suspended: the persistent notice owns the next move (rule B8). A pending retry
-    // will carry this edit along, so neither case wants a fresh timer.
-    if (suspended.current || retryTimer.current !== null) {
+    // Suspended: the persistent notice owns the next move (rule B8), so this edit gets
+    // no timer — but it DOES put the notice back if the user dismissed it. Otherwise
+    // dismissing the banner would leave a failed save with no way to retry it and a
+    // reload as the only exit, which is the one action that loses the text.
+    if (suspendedFor.current !== null) {
+      showSuspendedNotice(suspendedFor.current);
+      return;
+    }
+    // A pending retry will carry this edit along, so it wants no fresh timer either.
+    if (retryTimer.current !== null) {
       return;
     }
 
@@ -300,7 +344,7 @@ export function NoteEditor({ note }: { note: NoteView }) {
     if (maxWaitTimer.current === null) {
       maxWaitTimer.current = window.setTimeout(flush, MAX_WAIT_MS);
     }
-  }, [flush]);
+  }, [flush, showSuspendedNotice]);
 
   useEffect(() => {
     mounted.current = true;
