@@ -14,10 +14,15 @@ interface HeaderProps {
 
 export function Header({ actions }: HeaderProps) {
   return (
-    // Sticky, and translucent rather than opaque: the grid scrolls *under* the
-    // bar instead of disappearing behind a hard edge, which is what keeps a
-    // fixed header from reading as a toolbar bolted onto the page.
-    <header className="sticky top-0 z-30 border-b border-border/80 bg-surface/85 backdrop-blur-md">
+    // Sticky, and very slightly translucent: the grid scrolls *under* the bar
+    // instead of disappearing behind a hard edge, which is what keeps a fixed
+    // header from reading as a toolbar bolted onto the page.
+    //
+    // NOT `backdrop-blur`. A backdrop filter makes this element a backdrop root, so
+    // the strip behind it is re-read and re-blurred on every scroll frame — paid
+    // over the whole length of the notes grid. At 95% opacity there is almost
+    // nothing left to blur, so the cost bought a difference in 5% of the ground.
+    <header className="sticky top-0 z-30 border-b border-border/80 bg-surface/95">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
           {/* Decorative only — the app name beside it is the accessible text. */}

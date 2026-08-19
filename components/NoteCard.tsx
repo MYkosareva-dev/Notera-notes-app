@@ -100,9 +100,18 @@ export function NoteCard({ note }: { note: NoteView }) {
           leaves the card — otherwise moving the mouse to the menu's own items would
           fade the thing you are aiming at.
         */}
+        {/*
+          NO `z-10` HERE, deliberately. It used to be, and it was what put an open menu
+          BEHIND the sticky header: `relative` + a z-index makes the menu's root a
+          stacking context, which traps the dropdown's own z-index inside it — so the
+          dropdown could never rise above anything the root could not. It does not need
+          one: MoreMenu's root is `relative`, the card-wide link is `absolute`, both are
+          positioned at `z-auto`, and the root comes LATER in the DOM, so it already
+          paints (and hit-tests) above the link. See MoreMenu for the other half.
+        */}
         <NoteCardMenu
           noteId={note.id}
-          className="z-10 -mr-1.5 -mt-1.5 shrink-0 transition-opacity can-hover:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+          className="-mr-1.5 -mt-1.5 shrink-0 transition-opacity can-hover:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100"
         />
       </div>
 

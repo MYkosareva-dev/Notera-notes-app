@@ -130,6 +130,11 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
       // `relative` is owned here, not passed in: the menu below is absolutely positioned
       // against this element, so a caller who forgot the class would silently anchor the
       // dropdown to some ancestor instead.
+      //
+      // `relative` and NOTHING ELSE that layers. A z-index here would make this element
+      // a stacking context and trap the dropdown's own z-index inside it — which is
+      // exactly how an open card menu ended up painted behind the sticky header. Callers
+      // must not pass a `z-*` class in `className` for the same reason.
       className={`relative ${className ?? ""}`}
       onKeyDown={handleKeyDown}
       // `onBlur` in React is the delegated `focusout`, so it fires for every
@@ -158,7 +163,10 @@ export function MoreMenu({ label, items, className }: MoreMenuProps) {
           id={menuId}
           role="menu"
           aria-label={label}
-          className="animate-rise absolute right-0 top-9 z-20 min-w-40 overflow-hidden rounded-card border border-border bg-surface p-1 shadow-pop"
+          /* z-40 places an open menu above the sticky Header (z-30) and below the
+             toast viewport (z-50). It only reaches those because the root above
+             creates no stacking context. */
+          className="animate-rise absolute right-0 top-9 z-40 min-w-40 overflow-hidden rounded-card border border-border bg-surface p-1 shadow-pop"
         >
           {items.map((item, index) => (
             <button
