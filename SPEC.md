@@ -484,13 +484,40 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 2. The assignment's verification checklist passes end-to-end in a browser: sign in as account A → create a note → reload (still there) → sign out → direct `/notes` URL redirects to `/sign-in` → sign in as account B → sees none of A's notes.
 3. Every acceptance checkbox in Block B passes at both 1280 and 375; nothing overflows.
 4. Zero console errors during the click-script: sign in → create → type 500 chars → add 2 tags → filter by tag → delete → sign out.
-5. Both greps run over **application code only** — `app/`, `components/`, `lib/`, `proxy.ts`, `supabase/` — and return nothing:
-   `grep -ri "localStorage\|sessionStorage" app/ components/ lib/ proxy.ts` and `grep -ri "service_role\|SERVICE_ROLE" app/ components/ lib/ proxy.ts supabase/`.
+5. Both greps run over **every code file this repo ships** — `app/`, `components/`, `lib/`, `scripts/`, `proxy.ts`, `next.config.ts` and any other root-level `*.ts` (except Next's generated `next-env.d.ts`), plus `supabase/` for the SQL — and return nothing:
+   `grep -ri "localStorage\|sessionStorage" app/ components/ lib/ scripts/ proxy.ts next.config.ts` and `grep -ri "service_role\|SERVICE_ROLE" app/ components/ lib/ scripts/ proxy.ts next.config.ts supabase/`.
+   **Build config and `scripts/` are in scope deliberately.** They are not app code, but they can read an env var and reach Supabase exactly as easily as a Server Action can — and narrowing this check to app code was a coverage regression against the old, over-broad `grep -ri . `, introduced by the same commit that created `scripts/`. Caught at the Phase 7 `/review-auth` and closed on the same branch.
    Everything else is **excluded by name**, because prose about a thing is not a use of it: `.agents/skills/` (vendor skill docs), `docs/` (the Context7 material, which quotes Supabase's own warnings), `.next/` and `node_modules/` (build output and dependencies), `SPEC.md` (it quotes both greps — including on this line), and `WORKLOG.md`, which is excluded for a second and stronger reason: rule 19 makes it off-limits, so a project check must never print it. Running the old, unscoped version of this check did.
-   The known prose hits, enumerated at the Phase 7 gate so a future run can tell "unchanged" from "new": `.agents/skills/supabase/SKILL.md`; `.agents/skills/supabase-postgres-best-practices/references/security-rls-performance.md`; two lines in SPEC.md itself (Block G edge case 25, and this check); and two lines in `WORKLOG.md`. Anything else is a finding. `npm run check` runs both greps at this scope, so the check is one command.
+   The known prose hits, enumerated at the Phase 7 gate so a future run can tell "unchanged" from "new": `.agents/skills/supabase/SKILL.md`; `.agents/skills/supabase-postgres-best-practices/references/security-rls-performance.md`; two lines in SPEC.md itself (Block G edge case 25, and this check); and two lines in `WORKLOG.md`. Anything else is a finding. `npm run check` runs both greps at this scope, so the check is one command — and it builds both search patterns from fragments (`"service" + "_role"`), constant names included, because `scripts/check.mjs` is now inside the scope it scans and a literal needle there would match itself. The first version did exactly that and failed its own check twice.
 6. `grep -rn "getSession()" app/ lib/ proxy.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
 7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`).
 8. README documents: purpose, run steps, both env vars and where to find their values (Supabase dashboard → Settings → API), a screenshot of the local app, and the optional tasks with their branch/PR names.
 9. Public self-signup is **off** at the Auth API, not merely unused by the app:
    `curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/settings"` reports `"disable_signup":true`.
    Re-checkable on purpose: this is dashboard state, so it can regress without a single line of code changing. It was found **enabled** at the Phase 2 gate and switched off there; the probe is what turns "we switched it off once" into something anyone can re-run in five seconds. The app never calls `signUp`, which is why the endpoint — not the app — is what has to be checked. Verified `true` at the Phase 7 gate.
+
+---
+
+## Post-sprint debt
+
+Settled decisions that are deliberately NOT part of Block H — none blocks Done, each has
+a recorded reason. Kept here so they are findable without reading the phase history.
+
+1. **RLS policies get `to authenticated`.** The four policies are evaluated for the
+   `anon` role too, where `auth.uid()` is null and the predicate is simply false — no
+   row leaks, so this is cost, not exposure. Adding `to authenticated` skips the
+   evaluation for a role that can never match. Deferred at the Phase 7
+   `/review-auth` (owner decision): it is worth folding into the next DDL run that
+   happens for another reason, and not worth a run of its own.
+2. **`secure` and `httpOnly` on the auth cookies.** The `@supabase/ssr` defaults ship
+   `httpOnly: false` because `createBrowserClient` reads the session through
+   `document.cookie`; accepted for a local-only sprint with no injection sink, and to be
+   revisited together with `secure` before any deployment (Block A decision).
+3. **A database fence for `LIMITS.tagMax` and `LIMITS.notesPerUser`.** DECLINED, not
+   pending — both need a trigger on a table that autosaves while the user types. The
+   accepted limitation and what guards those caps instead are recorded in Block C.
+4. **Two parked schema notes from the Phase 2 full-review:** an id-existence oracle and
+   a schema idempotency note. Neither changes behaviour; neither is needed for Block H.
+5. **Silent offline sign-out, and no auto-resume after the rule B8 suspension.** Both
+   are settled decisions rather than defects, taken at the Phase 4 gate — the offline
+   case under Block E's `/notes` screen, the suspension under Block F's numbered rules.
