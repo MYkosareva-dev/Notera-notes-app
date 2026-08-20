@@ -74,6 +74,29 @@ New note action; `/notes/[id]` editor with local state + 300 ms debounce +
 error and not-found states per SPEC Block E.
 **Done when:** SPEC US3, US4 and US6 boxes pass with the two dashboard test
 accounts; the assignment's 4-step verification checklist passes.
+Four probes found defects a green HTTP suite structurally could not see, so they
+are recorded as recipes rather than drivers — prose never flakes and needs no
+credentials in the repo. Each is a browser check, by hand or by driving real
+Chrome over CDP:
+1. **Offline save.** Open a note, cut the network (DevTools offline, or CDP
+   `Network.emulateNetworkConditions` — which needs `Network.enable` called first
+   on that session, or the switch is silently ignored and the "offline" requests
+   simply succeed), then type. Expect ONE notice, four attempts on the B8 ladder,
+   then a suspended state whose **Retry now** owns the next move: there is no
+   auto-resume when the network returns, by decision.
+2. **Dialog closed on arrival.** Load `/notes/[id]` and read
+   `getComputedStyle(document.querySelector("dialog")).display` — it must be
+   `"none"`. The Phase 4 bug was a display utility beating the UA's closed-state
+   rule, so the confirm dialog painted across the editor with its Delete armed and
+   ate the click meant for the title field. `npm run check` guards the fix's one
+   line; only this probe sees the screen.
+3. **No red on a successful sign-in.** Sign in with correct credentials and watch
+   every frame, including the redirect: no error copy may appear at any point. The
+   defect here is a flash, so a single end-state assertion misses it.
+4. **A dismissed notice comes back.** Dismiss a persistent banner, then type one
+   character — the banner must return. The original defect was the ABSENCE of that
+   code path, which no test can fail on until someone specifies it; hence
+   `review-auth` question 10.
 **GATE — strict:** `/review-auth` all-PASS; fresh-session review; PR; merge.
 
 ## Phase 5 — Optional task 1: minimalist design  (branch `feat/design`)
@@ -94,14 +117,30 @@ optional tasks + their PRs); REFLECTION.md written by the owner from WORKLOG.md
 using REFLECTION_TEMPLATE.md; screenshots into `docs/screenshots/` (local app,
 Authentication tab, Table Editor with user_id, the two-account SQL query).
 Owner: fresh-clone test in a clean folder; full 4-step checklist there.
-Also in Phase 7: reword Block H check 5 to exclude vendor skill docs
-(.agents/skills/) and docs/; add a re-checkable probe "GET
-{SUPABASE_URL}/auth/v1/settings returns disable_signup: true" (public
-self-signup was found enabled at the Phase 2 gate and switched off in the
-dashboard); decide the four carried schema-amendment items from the Phase 2
-full-review (tagMax/notesPerUser DB fence, set_updated_at search_path,
-id-existence oracle, schema idempotency note).
-**Done when:** SPEC Block H — all 8 checks pass.
+Also in Phase 7, all landed on `chore/docs`: Block H check 5 is reworded to
+application code only, excluding `.agents/skills/`, `docs/`, `WORKLOG.md` and
+`.next/`, and it now names its known prose hits so a later run can tell
+"unchanged" from "new". WORKLOG.md is on that list because rule 19 means a project
+check must never print the owner's private file — running the old check did.
+The self-signup probe is now **Block H check 9**: `GET
+{SUPABASE_URL}/auth/v1/settings` with the anon key as `apikey` must report
+`"disable_signup": true`. Re-checkable on purpose, because dashboard state can
+regress with no code change — and it WAS enabled at the Phase 2 gate before being
+switched off there. Verified `true` at the Phase 7 gate.
+Of the four carried schema-amendment items, two are in
+`supabase/phase7-amendments.sql` (`set_updated_at`'s pinned `search_path`; the
+drop of the superseded `notes_user_created_idx`) together with a third,
+owner-requested change: the four RLS policies rewritten to `(select auth.uid())`
+per the linter's `auth_rls_initplan` advisory. The **tagMax/notesPerUser DB fence
+is DECLINED** — both need a trigger on a table that autosaves while the user
+types, which is disproportionate here; SPEC Block C records it as an accepted,
+documented limitation with what guards those caps instead. The id-existence
+oracle and the schema idempotency note stay parked: neither changes behaviour,
+neither is needed for Block H.
+The three verification items deferred at the Phase 4 gate land here too:
+`npm run check` (`scripts/check.mjs`, nine checks, no dependencies), the four
+probe recipes written into Phase 4 above, and question 10 in `review-auth`.
+**Done when:** SPEC Block H — all 9 checks pass (check 9 is the self-signup probe added in this phase).
 **GATE → final merge → rehearse the review-call demo (dashboard walk-through).**
 
 ---

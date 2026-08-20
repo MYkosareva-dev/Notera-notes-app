@@ -84,7 +84,11 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
 
    `/` redirects to `/notes`; signed out, `/notes` redirects to `/sign-in`.
 
-Other scripts: `npm run typecheck` (`tsc --noEmit`), `npm run build`, `npm start`.
+Other scripts: **`npm run check`** — nine dependency-free checks over the code that
+enforce the rules a type-checker cannot see (no web storage, no service-role key, no
+`getSession()` call site, every notes query inside the DAL and carrying its `user_id`
+filter, and a few outright prohibitions). Also `npm run typecheck` (`tsc --noEmit`),
+`npm run build`, `npm start`.
 
 ![Sign-in page](docs/screenshots/sign-in.png)
 
@@ -105,8 +109,10 @@ Other scripts: `npm run typecheck` (`tsc --noEmit`), `npm run build`, `npm start
 - **Limits** all come from `LIMITS` in `lib/types.ts` — 200 characters per title,
   50,000 per note, 24 per tag, 10 tags per note, 1,000 notes per account. Three of them
   have a matching `check` constraint in the database (title length, content length, tag
-  count); the per-tag length and the notes-per-account cap are enforced in the DAL only,
-  which is a recorded pending schema amendment rather than an oversight.
+  count). The per-tag length and the notes-per-account cap are enforced in the DAL
+  only — a database fence for those two was considered and **declined**, because both
+  would need a trigger on a table that autosaves while you type. It is recorded in
+  SPEC Block C as an accepted limitation, with what guards them instead.
 
 ## Supabase guidance in this repo
 
@@ -151,6 +157,13 @@ The browser checklist that goes with them: sign in as A → create a note → re
 there) → sign out → hit `/notes` directly (redirected to `/sign-in`) → sign in as B →
 none of A's notes are visible.
 
+## Project write-up
+
+[`REFLECTION.md`](REFLECTION.md) is the developer's own account of the build, written
+by hand: the persistent-storage consultation that preceded any code, an authentication
+issue caught and fixed, a prompt the agent took further than intended, and two
+appendices — a data-model walkthrough and the second optional task.
+
 ## Optional tasks delivered
 
 | Task | Branch | PR |
@@ -170,3 +183,6 @@ none of A's notes are visible.
   `@supabase/ssr` defaults — `secure` and `httpOnly` are decisions to revisit before any
   deploy (recorded in SPEC Block A).
 - **Filtering is one tag at a time.** There is no multi-tag intersection and no search.
+- **Two of the five caps are app-enforced only.** A row written by hand in the SQL
+  Editor can carry a tag longer than 24 characters, or push an account past 1,000
+  notes; nothing written through the app can. A deliberate trade — see SPEC Block C.

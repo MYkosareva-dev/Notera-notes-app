@@ -437,8 +437,10 @@ export async function updateNote(id: string, patch: NotePatch): Promise<void> {
     // never diverges from what was stored.
     //
     // The Block C CHECK is the third fence, and it only bounds the array LENGTH —
-    // `LIMITS.tagMax` has no database counterpart (a recorded schema-amendment
-    // candidate), so this is the last place a 200-character tag can be stopped.
+    // `LIMITS.tagMax` has no database counterpart and now never will: the fence was
+    // considered at the Phase 7 gate and DECLINED (it needs a trigger on a table that
+    // autosaves while the user types), so this is not "the last place before the
+    // database catches it" but the last place a 200-character tag is stopped at all.
     if (patch.tags.length > LIMITS.tagsPerNote) {
       throw new NotesError("invalid", "too many tags");
     }

@@ -27,5 +27,16 @@ For each item give a verdict — PASS or FAIL — and for every FAIL cite the fi
    accept a user id from the client instead of deriving it via `getUser()` inside
    the DAL?
 
+10. **Dismissible notices.** For every persistent notice in the diff — a banner, an
+    inline error, a save-failed state — what happens if the user dismisses it? Is the
+    condition still true afterwards, and does the notice come back when the user next
+    acts? A notice that can be dismissed while its cause persists leaves the user
+    working in a state the app knows is broken and has stopped saying so.
+    This question exists because the stranded-banner defect was the ABSENCE of a code
+    path: nothing was wrong with any line that was written, so no test could fail on it
+    and no reviewer looking only at the diff's logic would ask. The countermeasure has
+    to be a question, not a test. Phase 4 probe 4 is its manual form: dismiss the
+    banner, type one character, watch it return.
+
 Finish with a verdict: **SAFE TO MERGE** or **DO NOT MERGE**, and if the latter,
 a numbered fix list ordered by severity.
