@@ -6,8 +6,11 @@ the pull request, merges, and only then starts the next phase — in a **fresh
 Claude Code session** (Sprint 2 workflow habit).
 
 ## The gate ritual (same at the end of every phase)
-0. Agent: `npm run typecheck && npm run build` — both clean before the commit. The
-   build is not optional: a mistyped `server-only` import is silently inert without it.
+0. Agent: `npm run check && npm run typecheck && npm run build` — all three clean
+   before the commit. The build is not optional: a mistyped `server-only` import is
+   silently inert without it. `npm run check` leads because it is the only guard on
+   rules 3b and 7 — a dropped ownership filter typechecks and builds perfectly.
+   It needs no network and no `.env.local`, so it can never be the reason a gate stalls.
 1. Agent: commits, prints a summary of changed files, and **stops**.
 2. Owner runs, in this order:
    - `/review-auth` — the project's own auth-mistake scan (in `.claude/commands/`)
@@ -117,11 +120,14 @@ optional tasks + their PRs); REFLECTION.md written by the owner from WORKLOG.md
 using REFLECTION_TEMPLATE.md; screenshots into `docs/screenshots/` (local app,
 Authentication tab, Table Editor with user_id, the two-account SQL query).
 Owner: fresh-clone test in a clean folder; full 4-step checklist there.
-Also in Phase 7, all landed on `chore/docs`: Block H check 5 is reworded to
-application code only, excluding `.agents/skills/`, `docs/`, `WORKLOG.md` and
-`.next/`, and it now names its known prose hits so a later run can tell
-"unchanged" from "new". WORKLOG.md is on that list because rule 19 means a project
-check must never print the owner's private file — running the old check did.
+Also in Phase 7, all landed on `chore/docs`: Block H check 5 is rescoped to **every
+code file this repo ships** — app code plus `scripts/`, `proxy.ts`, `next.config.ts`,
+`postcss.config.mjs`, `.env.example` and `supabase/` — excluding the paths that only
+ever discuss the key in prose (`.agents/skills/`, `.claude/`, `docs/`, `node_modules/`,
+`.next/`, `SPEC.md`) and `WORKLOG.md`, which is excluded for the stronger reason that
+rule 19 makes it off-limits: running the old check printed two of its lines. Block H
+holds the authoritative wording and the enumerated prose hits — do not paraphrase the
+scope here, because that is precisely what drifted once already inside this phase.
 The self-signup probe is now **Block H check 9**: `GET
 {SUPABASE_URL}/auth/v1/settings` with the anon key as `apikey` must report
 `"disable_signup": true`. Re-checkable on purpose, because dashboard state can
@@ -138,7 +144,8 @@ documented limitation with what guards those caps instead. The id-existence
 oracle and the schema idempotency note stay parked: neither changes behaviour,
 neither is needed for Block H.
 The three verification items deferred at the Phase 4 gate land here too:
-`npm run check` (`scripts/check.mjs`, nine checks, no dependencies), the four
+`npm run check` (`scripts/check.mjs`, no dependencies, hardened at the Phase 7
+/full-review against a mutation set that had defeated five of its checks), the four
 probe recipes written into Phase 4 above, and question 10 in `review-auth`.
 **Done when:** SPEC Block H — all 9 checks pass (check 9 is the self-signup probe added in this phase).
 **GATE → final merge → rehearse the review-call demo (dashboard walk-through).**

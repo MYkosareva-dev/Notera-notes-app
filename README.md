@@ -84,10 +84,13 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
 
    `/` redirects to `/notes`; signed out, `/notes` redirects to `/sign-in`.
 
-Other scripts: **`npm run check`** — nine dependency-free checks over the code that
-enforce the rules a type-checker cannot see (no web storage, no service-role key, no
-`getSession()` call site, every notes query inside the DAL and carrying its `user_id`
-filter, and a few outright prohibitions). Also `npm run typecheck` (`tsc --noEmit`),
+Other scripts: **`npm run check`** — dependency-free static checks over the code,
+enforcing the rules a type-checker cannot see: no web storage, no service-role key, no
+`getSession()` call site, every notes table access inside the DAL and every one of its
+query chains carrying a literal `.eq("user_id", user.id)`, plus a few outright
+prohibitions. It prints its own count and fails loudly if it scanned nothing. Honest
+scope: it reads text, so it cannot tell whether that `user.id` came from `getUser()`, and
+nothing here re-verifies the live database. Also `npm run typecheck` (`tsc --noEmit`),
 `npm run build`, `npm start`.
 
 ![Sign-in page](docs/screenshots/sign-in.png)
