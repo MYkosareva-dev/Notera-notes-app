@@ -1,3 +1,11 @@
+-- Notera Notes — the whole schema, as it exists in the project's Supabase database.
+-- Run this file in the SQL Editor to provision a fresh project from nothing.
+--
+-- It already includes the Phase 7 amendments, so a fresh clone gets the current shape
+-- in one pass. `phase7-amendments.sql` is the migration that brought an ALREADY
+-- provisioned database here (a pinned search_path, one index dropped, the policies
+-- rewritten); it is kept as the record of what ran, not as a second thing to run.
+
 -- Notes table: one row per note, owned by exactly one auth user.
 create table public.notes (
   id         uuid primary key default gen_random_uuid(),
@@ -9,22 +17,35 @@ create table public.notes (
   updated_at timestamptz not null default now()
 );
 
+-- Three of the five app-level caps are also CHECK constraints above: title length,
+-- content length and tag count. The other two — 24 characters per tag and 1,000 notes
+-- per user — are enforced only in lib/notes.ts, because a per-element test over a
+-- text[] and a per-user row count both need a trigger, and a trigger on a table that
+-- autosaves while the user types is disproportionate here. Declined deliberately at the
+-- Phase 7 gate; SPEC Block C records the trade-off and what it leaves open.
+
 alter table public.notes enable row level security;
 
--- RLS: each verb restricted to the row owner. auth.uid() is the signed-in user's id.
+-- RLS: each verb restricted to the row owner, and the owner is auth.uid() — the id in
+-- the request's JWT. The call is wrapped in `(select …)` so Postgres evaluates it ONCE
+-- per statement as an InitPlan instead of once per candidate row (Supabase's
+-- auth_rls_initplan advisory). `(select auth.uid()) = user_id` and `auth.uid() =
+-- user_id` accept exactly the same rows; only the cost differs.
 create policy "notes_select_own" on public.notes
-  for select using (auth.uid() = user_id);
+  for select using ((select auth.uid()) = user_id);
 create policy "notes_insert_own" on public.notes
-  for insert with check (auth.uid() = user_id);
+  for insert with check ((select auth.uid()) = user_id);
 create policy "notes_update_own" on public.notes
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update using ((select auth.uid()) = user_id)
+              with check ((select auth.uid()) = user_id);
 create policy "notes_delete_own" on public.notes
-  for delete using (auth.uid() = user_id);
+  for delete using ((select auth.uid()) = user_id);
 
--- Both list orderings, owner-scoped. The screen walks (user_id, updated_at desc) —
--- updated_at is the timestamp each card prints (Block E). The created_at pair predates
--- it and is kept for an ordering by creation time, which nothing does today.
-create index notes_user_created_idx on public.notes (user_id, created_at desc);
+-- The list's ordering, owner-scoped: the screen walks (user_id, updated_at desc), and
+-- updated_at is the timestamp each card prints (Block E). A matching (user_id,
+-- created_at desc) index existed until Phase 7 and was dropped — nothing has ordered by
+-- created_at since Phase 4, and it was a third index maintained on every autosave. One
+-- `create index` brings it back if a "newest first" sort is ever added.
 create index notes_user_updated_idx on public.notes (user_id, updated_at desc);
 
 -- The tag filter is a containment predicate (tags @> ARRAY['client']). GIN is the
@@ -32,8 +53,17 @@ create index notes_user_updated_idx on public.notes (user_id, updated_at desc);
 create index notes_tags_idx on public.notes using gin (tags);
 
 -- Auto-touch updated_at on every update.
+--
+-- search_path is pinned empty (Supabase's function_search_path_mutable lint): a function
+-- that resolves unqualified names through the CALLER's search_path can be aimed at a
+-- look-alike object placed earlier in that path. Empty is safe for this body because it
+-- calls only now(), which lives in pg_catalog and is resolvable regardless. Any name
+-- added here later must be schema-qualified.
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
 begin new.updated_at = now(); return new; end $$;
 
 create trigger notes_set_updated_at

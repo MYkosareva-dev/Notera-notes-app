@@ -177,6 +177,14 @@ public.notes (user_id)
 
 ### `supabase/schema.sql` — execute in the Supabase SQL Editor
 ```sql
+-- Notera Notes — the whole schema, as it exists in the project's Supabase database.
+-- Run this file in the SQL Editor to provision a fresh project from nothing.
+--
+-- It already includes the Phase 7 amendments, so a fresh clone gets the current shape
+-- in one pass. `phase7-amendments.sql` is the migration that brought an ALREADY
+-- provisioned database here (a pinned search_path, one index dropped, the policies
+-- rewritten); it is kept as the record of what ran, not as a second thing to run.
+
 -- Notes table: one row per note, owned by exactly one auth user.
 create table public.notes (
   id         uuid primary key default gen_random_uuid(),
@@ -188,22 +196,35 @@ create table public.notes (
   updated_at timestamptz not null default now()
 );
 
+-- Three of the five app-level caps are also CHECK constraints above: title length,
+-- content length and tag count. The other two — 24 characters per tag and 1,000 notes
+-- per user — are enforced only in lib/notes.ts, because a per-element test over a
+-- text[] and a per-user row count both need a trigger, and a trigger on a table that
+-- autosaves while the user types is disproportionate here. Declined deliberately at the
+-- Phase 7 gate; SPEC Block C records the trade-off and what it leaves open.
+
 alter table public.notes enable row level security;
 
--- RLS: each verb restricted to the row owner. auth.uid() is the signed-in user's id.
+-- RLS: each verb restricted to the row owner, and the owner is auth.uid() — the id in
+-- the request's JWT. The call is wrapped in `(select …)` so Postgres evaluates it ONCE
+-- per statement as an InitPlan instead of once per candidate row (Supabase's
+-- auth_rls_initplan advisory). `(select auth.uid()) = user_id` and `auth.uid() =
+-- user_id` accept exactly the same rows; only the cost differs.
 create policy "notes_select_own" on public.notes
-  for select using (auth.uid() = user_id);
+  for select using ((select auth.uid()) = user_id);
 create policy "notes_insert_own" on public.notes
-  for insert with check (auth.uid() = user_id);
+  for insert with check ((select auth.uid()) = user_id);
 create policy "notes_update_own" on public.notes
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for update using ((select auth.uid()) = user_id)
+              with check ((select auth.uid()) = user_id);
 create policy "notes_delete_own" on public.notes
-  for delete using (auth.uid() = user_id);
+  for delete using ((select auth.uid()) = user_id);
 
--- Both list orderings, owner-scoped. The screen walks (user_id, updated_at desc) —
--- updated_at is the timestamp each card prints (Block E). The created_at pair predates
--- it and is kept for an ordering by creation time, which nothing does today.
-create index notes_user_created_idx on public.notes (user_id, created_at desc);
+-- The list's ordering, owner-scoped: the screen walks (user_id, updated_at desc), and
+-- updated_at is the timestamp each card prints (Block E). A matching (user_id,
+-- created_at desc) index existed until Phase 7 and was dropped — nothing has ordered by
+-- created_at since Phase 4, and it was a third index maintained on every autosave. One
+-- `create index` brings it back if a "newest first" sort is ever added.
 create index notes_user_updated_idx on public.notes (user_id, updated_at desc);
 
 -- The tag filter is a containment predicate (tags @> ARRAY['client']). GIN is the
@@ -211,8 +232,17 @@ create index notes_user_updated_idx on public.notes (user_id, updated_at desc);
 create index notes_tags_idx on public.notes using gin (tags);
 
 -- Auto-touch updated_at on every update.
+--
+-- search_path is pinned empty (Supabase's function_search_path_mutable lint): a function
+-- that resolves unqualified names through the CALLER's search_path can be aimed at a
+-- look-alike object placed earlier in that path. Empty is safe for this body because it
+-- calls only now(), which lives in pg_catalog and is resolvable regardless. Any name
+-- added here later must be schema-qualified.
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
 begin new.updated_at = now(); return new; end $$;
 
 create trigger notes_set_updated_at
@@ -224,7 +254,15 @@ create trigger notes_set_updated_at
 > Decision: RLS is enabled even though the assignment only demands query-level filtering. RLS is the server-enforced second fence: even a buggy query cannot leak foreign rows. Application queries STILL filter by `user_id` explicitly (rule B4) — defense in depth, and the explicit filter uses the index.
 > Decision: tags are a `text[]` column, not a join table. One user's tags never interact with another's, cardinality is tiny (≤10), and the tag filter is a single `contains` query. A join table would double the RLS surface for zero benefit at this size.
 > Decision (Phase 6, owner-run): **`listNotes`'s two access paths now each have their index.** The query orders by `updated_at desc` (Phase 4's decision, above) and, when a chip is selected, adds `tags @> ARRAY[…]`; through Phase 5 both were answered by scanning and sorting the owner's rows. `notes_user_updated_idx` is what the ordering walks, and `notes_tags_idx` is a **GIN** index because `@>` on an array is not a btree operation — without it the containment predicate is re-checked row by row no matter how selective the tag is. Both were executed in the SQL Editor by the owner at the Phase 6 gate and are written here in the same change (rule 8), which closes two of the four amendments parked at the Phase 2 gate.
-> The honest cost, recorded so nobody has to rediscover it: a GIN index is maintained on **every write**, and this app writes on a 300 ms autosave debounce while the user types. At `LIMITS.notesPerUser` = 1,000 rows neither index earns much — the owner filter alone cuts to a tiny set — so this is the shape being right rather than a measured speed-up, and the write cost is the price of that. `notes_user_created_idx` is kept even though no query orders by `created_at` today: dropping it is another DDL run for a few kilobytes, and it is the index a "newest first" sort would want if one is ever added. A drop is a Phase 7 candidate, not a silent edit.
+> The honest cost, recorded so nobody has to rediscover it: a GIN index is maintained on **every write**, and this app writes on a 300 ms autosave debounce while the user types. At `LIMITS.notesPerUser` = 1,000 rows neither index earns much — the owner filter alone cuts to a tiny set — so this is the shape being right rather than a measured speed-up, and the write cost is the price of that. `notes_user_created_idx` was kept through Phase 6 even though no query orders by `created_at`. **It was dropped at the Phase 7 gate — see the amendment decision below.**
+
+> Decision (Phase 7 gate, owner-run): **three amendments, and the fourth declined.** The DDL is `supabase/phase7-amendments.sql`; it **ran in the SQL Editor at the gate**, and its four verification queries read as described — `proconfig` shows the pinned `search_path`, `pg_indexes` lists three indexes with the `created_at` one gone, `pg_policies` shows all four qualifiers in the InitPlan form, and account A's workspace still lists exactly A's notes. The code block above and `supabase/schema.sql` were rewritten in the same change to match what now exists (rule 8 — these files describe a database that exists, not one that was planned). `phase7-amendments.sql` stays in the repo as the record of what ran; `schema.sql` alone provisions a fresh project.
+> 1. **`set_updated_at` gets a pinned `search_path`.** `alter function public.set_updated_at() set search_path = ''` — Supabase's linter raises `function_search_path_mutable` on any function without one, because a function that resolves unqualified names through the *caller's* `search_path` can be aimed at a look-alike object placed earlier in that path. This body only assigns `new.updated_at = now()`, and `now()` lives in `pg_catalog`, which is always in scope regardless of `search_path` — so an empty path is safe here and the warning goes away for a real reason rather than by suppression.
+> 2. **`notes_user_created_idx` dropped.** Since Phase 4 the list orders by `updated_at desc`, and Phase 6 added `notes_user_updated_idx` to answer exactly that; the `created_at` pair has had no reader since. Keeping it means a third index maintained on a table that writes on a 300 ms autosave debounce, to serve an ordering nothing asks for. If a "newest first" sort is ever added, this is one `create index` away.
+> 3. **The four RLS policies rewritten to `(select auth.uid()) = user_id`.** Supabase's `auth_rls_initplan` advisory: wrapped in a scalar subquery the call becomes an InitPlan, evaluated **once per statement** instead of once per candidate row. The predicate is semantically identical — same rows, same fence — so this is cost, not behaviour. **Magnitude, stated so "once per candidate row" is not read as table-wide:** rule 7 already puts an explicit `.eq("user_id", user.id)` on every query, so the candidate set was never the whole table — it is the owner's rows (≤ `LIMITS.notesPerUser` = 1,000) for a list, and one or two rows for the primary-key paths. At that size this buys well under 1% of one request. Like the GIN index above, it is **the shape being right rather than a measured speed-up**; it silences a real advisory and costs nothing, and the security fence it rides on is the explicit filter, not this.
+> 4. **DECLINED — a database fence for `LIMITS.tagMax` (24 characters per tag) and `LIMITS.notesPerUser` (1,000 rows per user).** Neither is expressible as a `check` constraint here: a per-element length test over a `text[]` needs a subquery, and a per-user row count needs to see other rows, so both mean a **trigger** — a plpgsql function on every insert and update of the table that autosaves while the user types. That is disproportionate for a local study project with two accounts, and it is the same write path the GIN index already taxes.
+>
+>    **Accepted, documented limitation.** What guards these two caps instead: `lib/notes.ts` enforces both on write (`createNote` counts rows before inserting; `updateNote` refuses a patch holding an over-long tag), and the read side refuses an over-long *filter* value without a round-trip. What stays unguarded is precisely one thing — a row written by hand in the SQL Editor can hold a tag longer than 24 characters or push an account past 1,000 notes, and the database will accept it. The blast radius is small and known: an over-long stored tag renders truncated on the card (`lib/tagChip.ts`), and it makes the next tag patch on that note fail validation until it is removed. The three constraints that ARE in the schema (title length, content length, tag count) stay as the second fence for the caps that a `check` can express. Revisit if this app ever gains a second writer that is not `lib/notes.ts`.
 
 ### Seed data (run AFTER creating the two test accounts; replace the UUIDs with the real ones from Authentication → Users)
 ```sql
@@ -364,7 +402,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 
 ### Numbered rules
 - **B1 — One mutation pipeline.** Every write goes: local state → debounced Server Action → Supabase → `revalidatePath`. No component talks to Supabase directly for writes; no write bypasses the action files.
-> Known cost (measured, Phase 6 gate): **`revalidatePath` in `saveNote` makes every autosave re-render `/notes/[id]` on the server.** Revalidating any path marks the request as having revalidated, and Next then renders the current route's flight data beside the action result — so the POST answers with an RSC tree the editor discards, its text being local state after mount (rule B2). Owner-confirmed in DevTools: **~6.4 kB per autosave**, where a bare `{ ok: true }` is ~40 bytes. `app/notes/actions.ts` previously claimed the opposite in a comment; the comment was corrected in the same change (rule 18). The call STAYS for now because this rule names `revalidatePath` as part of the pipeline — removing it from the save path is an amendment to B1, so it is parked as post-sprint debt with the measurement attached rather than dropped quietly. `createNote` and `deleteNote` keep it regardless: those genuinely change the list.
+> Known cost (measured, Phase 6 gate): **`revalidatePath` in `saveNote` makes every autosave re-render `/notes/[id]` on the server.** Revalidating any path marks the request as having revalidated, and Next then renders the current route's flight data beside the action result — so the POST answers with an RSC tree the editor discards, its text being local state after mount (rule B2). Owner-confirmed in DevTools: **~6.4 kB per autosave**, where a bare `{ ok: true }` is ~40 bytes. **And the bytes are the smaller half.** That re-render runs the route's own data path again — `app/notes/layout.tsx`'s `getUser()`, then `getNote()` inside the DAL, which is another `getUser()` plus a `SELECT`. Next dedupes an identical Auth request within ONE render pass, but the action and the revalidation-triggered render are not the same pass, so the honest figure is **2-3 Supabase round-trips per autosave instead of 1** — on the order of 70 ms at the ~35 ms round-trip this project measured at the Phase 6 gate — on top of the discarded 6.4 kB. `app/notes/actions.ts` states this correctly; this note recorded only the payload until the Phase 7 /full-review caught the omission. One more thing the parked decision should carry: `/notes` reads cookies, so it is never in the Full Route Cache, and what `revalidatePath` actually buys is invalidating the client Router Cache so a navigation back to the list refetches. That job is real — dropping the call would leave a stale list — which makes removing it less free than "it buys nothing" would suggest. `app/notes/actions.ts` previously claimed the opposite in a comment; the comment was corrected in the same change (rule 18). The call STAYS for now because this rule names `revalidatePath` as part of the pipeline — removing it from the save path is an amendment to B1, so it is parked as post-sprint debt with the measurement attached rather than dropped quietly. `createNote` and `deleteNote` keep it regardless: those genuinely change the list.
 - **B2 — Local editor state.** `NoteEditor` holds title/content/tags in `useState`; a 300 ms debounce pushes changes; a `maxWait` of 5 s forces a save during continuous typing. In-memory text is never rolled back on failure.
 - **B3 — Server-side auth only, three fences.** Access decisions use `supabase.auth.getUser()` on the server; `getSession()` for access decisions is prohibited. Fence 1 (authoritative): the DAL `lib/notes.ts` calls `getUser()` on every operation and throws/redirects without a user — no data moves without it. Fence 2: `app/notes/layout.tsx` calls `getUser()` and issues the redirect — it does **not** suppress the render: a redirecting layout still lets the sibling page render into the RSC payload (measured on Next 16.3.1), and layouts do not re-run on client navigation. No-render is therefore owned by fence 1. Fence 3 (convenience only, NEVER the gate): `proxy.ts` — Next's current name for `middleware.ts` — refreshes the session cookie and does a cheap early redirect.
 - **B3b — DAL chokepoint.** No page, component or Server Action queries the `notes` table directly; everything imports from `lib/notes.ts` (marked `server-only`). Server Actions never trust a client-supplied user id — the DAL derives it from `getUser()`.
@@ -446,7 +484,84 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 2. The assignment's verification checklist passes end-to-end in a browser: sign in as account A → create a note → reload (still there) → sign out → direct `/notes` URL redirects to `/sign-in` → sign in as account B → sees none of A's notes.
 3. Every acceptance checkbox in Block B passes at both 1280 and 375; nothing overflows.
 4. Zero console errors during the click-script: sign in → create → type 500 chars → add 2 tags → filter by tag → delete → sign out.
-5. `grep -ri "localStorage\|sessionStorage" app/ components/ lib/` returns nothing; `grep -ri "service_role\|SERVICE_ROLE" .` returns nothing outside docs.
+5. Both greps run over **every code file this repo ships** — `app/`, `components/`, `lib/`, `scripts/`, and the root-level code files (`proxy.ts`, `next.config.ts`, `postcss.config.mjs`, and the committed `.env.example`), plus `supabase/` for the SQL — and return nothing. `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs` and `.cjs` all count: Next's default `pageExtensions` routes `.jsx`, and `tsconfig.json` sets `allowJs: false`, so a `.jsx` page would ship while escaping both this check and `npm run typecheck` — a Phase 7 mutation test proved it. Next's generated `next-env.d.ts` is skipped. Never a `.env*` glob: printing a finding out of a real secrets file would leak the secret, the same reasoning that keeps `WORKLOG.md` out.
+   `grep -ril "localStorage\|sessionStorage" app/ components/ lib/ scripts/ proxy.ts next.config.ts postcss.config.mjs .env.example`, and the same over "service_role\|SERVICE_ROLE" with `supabase/` added. Root-level code files are listed by name rather than globbed, because the generated `next-env.d.ts` must stay out; `npm run check` is the executable form of record and derives the list itself.
+   **Build config and `scripts/` are in scope deliberately.** They are not app code, but they can read an env var and reach Supabase exactly as easily as a Server Action can — and narrowing this check to app code was a coverage regression against the old, over-broad `grep -ri . `, introduced by the same commit that created `scripts/`. Caught at the Phase 7 `/review-auth` and closed on the same branch.
+   Everything else is **excluded by name**, because prose about a thing is not a use of it: `.agents/skills/` (vendor skill docs), `docs/` (the Context7 material, which quotes Supabase's own warnings), `.next/` and `node_modules/` (build output and dependencies), `.claude/` (see below), `SPEC.md` (it quotes both greps — including on this line), and `WORKLOG.md`, which is excluded for a second and stronger reason: rule 19 makes it off-limits, so a project check must never print it. Running the old, unscoped version of this check did.
+   The known prose hits, enumerated so a future run can tell "unchanged" from "new" — and counted for a FRESH CLONE, not for one particular working tree: **four** vendor skill-doc files and **two** lines of SPEC.md (Block G edge case 25, and this check). The four are `supabase/SKILL.md` and `supabase-postgres-best-practices/references/security-rls-performance.md`, each appearing TWICE — once under `.agents/skills/` and once under `.claude/skills/`. Both copies are tracked deliberately: the rubric grades the official Supabase Agent Skills being installed in the repo, and removing either could break skill discovery on a fresh clone. `WORKLOG.md` holds two more, which this check must never print (rule 19). Anything else is a finding.
+   **A trap worth knowing before you re-run this by hand:** on a working tree where `.claude/skills/*` are symlinks into `.agents/skills/*`, `grep -r` does NOT follow them and reports two hits instead of four. Use `grep -R`, or trust `npm run check`, which never walks either tree. This is exactly how the first version of this list came to be short by two.
 6. `grep -rn "getSession()" app/ lib/ proxy.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
 7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`).
 8. README documents: purpose, run steps, both env vars and where to find their values (Supabase dashboard → Settings → API), a screenshot of the local app, and the optional tasks with their branch/PR names.
+9. Public self-signup is **off** at the Auth API, not merely unused by the app:
+   `curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/settings"` reports `"disable_signup":true`.
+   Re-checkable on purpose: this is dashboard state, so it can regress without a single line of code changing. It was found **enabled** at the Phase 2 gate and switched off there; the probe is what turns "we switched it off once" into something anyone can re-run in five seconds. The app never calls `signUp`, which is why the endpoint — not the app — is what has to be checked. Verified `true` at the Phase 7 gate.
+
+---
+
+## Post-sprint debt
+
+Settled decisions that are deliberately NOT part of Block H — none blocks Done, each has
+a recorded reason. Kept here so they are findable without reading the phase history.
+
+1. **RLS policies get `to authenticated`.** The four policies are evaluated for the
+   `anon` role too, where `auth.uid()` is null and the predicate is simply false — no
+   row leaks, so this is cost, not exposure. Adding `to authenticated` skips the
+   evaluation for a role that can never match — though after amendment 3 what it saves is ONE InitPlan per
+   statement, not a call per row, so amendment 3 already absorbed most of this item's value. Deferred at the Phase 7
+   `/review-auth` (owner decision): it is worth folding into the next DDL run that
+   happens for another reason, and not worth a run of its own.
+2. **`secure` and `httpOnly` on the auth cookies.** The `@supabase/ssr` defaults ship
+   `httpOnly: false` because `createBrowserClient` reads the session through
+   `document.cookie`; accepted for a local-only sprint with no injection sink, and to be
+   revisited together with `secure` before any deployment (Block A decision).
+3. **A database fence for `LIMITS.tagMax` and `LIMITS.notesPerUser`.** DECLINED, not
+   pending — both need a trigger on a table that autosaves while the user types. The
+   accepted limitation and what guards those caps instead are recorded in Block C.
+4. **Two parked schema notes from the Phase 2 full-review:** an id-existence oracle and
+   a schema idempotency note. Neither changes behaviour; neither is needed for Block H.
+5. **A live-fence probe — `npm run check:live`. The strongest candidate for next
+   sprint's deploy phase.** Nothing in this repo re-verifies the live database, and RLS
+   is the second of the two fences the whole project rests on — the one most likely to
+   be switched off by hand during debugging and forgotten. Every static check,
+   `typecheck`, `build` and all ten review questions would stay green. Shape: read the
+   URL and anon key from `.env.local` inside the script (never typed by a human, never a
+   password — rule 20 is untouched), then `GET {URL}/rest/v1/notes?select=id` with the
+   anon key alone must come back empty or refused, and `GET {URL}/auth/v1/settings` must
+   report `"disable_signup":true`, which also automates Block H check 9. ~40 lines,
+   `fetch`, no dependency; skips with a clear message when `.env.local` is absent. It
+   stays OUT of `npm run check` on purpose: that command is hermetic and offline, which
+   is why it can lead the gate ritual.
+6. **A parity check for the schema, as a tenth check in `scripts/check.mjs`.** Block C
+   embeds `supabase/schema.sql` verbatim (asserted by hand at the Phase 7 gate, and the
+   Phase 7 edit had to be applied twice). Extracting the fenced block that follows the
+   `### supabase/schema.sql` heading and comparing it byte for byte is ~10 lines, and it
+   converts "the owner remembers to update both" into a failing command. Two of the five
+   Phase 7 /full-review lanes proposed it independently.
+7. **`supabase/migrations/` with dated filenames, plus a permanent `supabase/verify.sql`.**
+   `phase7-amendments.sql` is named by a phase, and the phases stop at 7 — items 1 and 6
+   above have no obvious home. A dated convention plus one clause in CLAUDE.md rule 8
+   fixes that without importing the Supabase CLI (which would be a new dependency, a
+   linked project and a shadow database to manage three DDL events). `verify.sql` would
+   promote the four one-off verification queries into something re-runnable after every
+   future amendment.
+8. **Unit tests for the pure logic, via `node:test`.** Verified at the Phase 7 gate to
+   need **no new dependency**: Node 24 strips types natively, and a ~14-line stdlib
+   resolve hook handles this repo's `@/` aliases. Highest-value targets: `tagLiteral`'s
+   PostgREST quoting, `isValidTag` at the `LIMITS.tagMax` boundary, and `callAction`'s
+   narrowed `NEXT_HTTP_ERROR_FALLBACK` match, where a widening regex would silently turn
+   a redirect into `ok: true`. Honest cost: `tagLiteral` is module-private inside a
+   `server-only` module, so it needs exporting or moving to a pure module first.
+9. **A preamble for `review-auth`.** Six of its ten questions (2, 3, 4, 6, 7, 9) are now
+   decided mechanically by `npm run check`. The checklist should say so and point the
+   reviewer at the residue the script cannot see — whether the id in
+   `.eq("user_id", …)` came from `getUser()` rather than a request body, and whether the
+   chain being read is the one a page actually calls.
+10. **Cosmetics from the Phase 7 /full-review**, none behavioural: letter this section so
+   it can be cited like "Block C"; add `scripts/`, `docs/screenshots/` and
+   `supabase/phase7-amendments.sql` to Block A's repository layout; and reword Block A's
+   `schema.sql` annotation, since rule 8 now makes the file authoritative and Block C the
+   copy.
+11. **Silent offline sign-out, and no auto-resume after the rule B8 suspension.** Both
+   are settled decisions rather than defects, taken at the Phase 4 gate — the offline
+   case under Block E's `/notes` screen, the suspension under Block F's numbered rules.
