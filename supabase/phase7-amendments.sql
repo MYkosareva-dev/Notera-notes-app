@@ -7,7 +7,9 @@
 --
 -- Nothing here touches a row: no data is read, changed or deleted. The RLS rewrite
 -- replaces each policy in a transaction, so the table is never left without its fence.
--- After it runs, supabase/schema.sql and SPEC Block C are updated to match (rule 8).
+-- This RAN at the Phase 7 gate; supabase/schema.sql and SPEC Block C were rewritten in
+-- the same change to match the result (rule 8). schema.sql alone provisions a fresh
+-- project — this file is the record of the migration, not a second thing to run.
 --
 -- The fourth parked amendment — a database fence for LIMITS.tagMax and
 -- LIMITS.notesPerUser — is DECLINED, not pending: both need a trigger on a table that

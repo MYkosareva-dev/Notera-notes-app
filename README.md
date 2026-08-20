@@ -52,9 +52,9 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
 
 4. **Create the table.** Open **SQL Editor** in the dashboard, paste
    [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates `public.notes`,
-   enables row-level security with one owner-only policy per verb, adds the two
-   ordering indexes plus a GIN index for the tag filter, and installs the trigger that
-   touches `updated_at`.
+   enables row-level security with one owner-only policy per verb, adds the index the
+   list ordering walks plus a GIN index for the tag filter, and installs the trigger
+   that touches `updated_at`.
 
 5. **Create the test accounts.** There is no sign-up screen — by design (the assignment
    asks for dashboard-created accounts). In the dashboard go to
