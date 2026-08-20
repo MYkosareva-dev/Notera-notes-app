@@ -14,18 +14,22 @@ capture only — a one-line injected `nextjs-portal{display:none}`, no source ch
 pointer is parked off-grid in `notes.png`, because a card under the cursor shows its
 hover border and its `⋮` button and then reads as one card styled unlike the other six.
 
-## Taken in the Supabase dashboard (owner only)
+## Taken in the Supabase dashboard (owner)
 
-The dashboard is outside the agent's remit, so these three ship as 1280 × 720 **placeholder PNGs**
-that say so. Save the real capture over the placeholder under the same filename and
-every `README.md` link keeps working — no README edit needed.
+The dashboard is outside the agent's remit, so these three are the owner's own captures.
+They replaced the placeholder PNGs that shipped in the first commit on this branch.
 
-| File | Where | What the real capture must show |
-| --- | --- | --- |
-| `auth-users.png` | Authentication → Users | Both test accounts, with Created at / Last sign in. Evidence the accounts are dashboard-created — the app has no sign-up flow. |
-| `table-user-id.png` | Table Editor → `notes` | The `user_id` column in frame and populated, two distinct uuids. That column is what every query in `lib/notes.ts` filters on. |
-| `sql-scoping.png` | SQL Editor | A query grouping `notes` by `user_id` with its result — each account's rows counted separately, no row without an owner. |
+| File | Size | Where | What it shows |
+| --- | --- | --- | --- |
+| `auth-users.png` | 1902 × 891 | Authentication → Users | Both test accounts, their UIDs, Created at and Last sign in. The evidence that accounts are made in the dashboard — the app has no sign-up flow. |
+| `table-user-id.png` | 1910 × 861 | Table Editor → `public.notes` | All nine rows with the `user_id` column populated by two distinct uuids, the `tags` array alongside, and the table's "4 RLS policies" badge. |
+| `sql-scoping.png` | 1231 × 746 | SQL Editor | `select user_id, count(*) … group by user_id` and its result: 7 notes for one owner, 2 for the other. |
 
-Addresses are visible in the dashboard's own UI. Nothing in this repo's *code* holds an
-email (CLAUDE.md rule 5) and these images are not code, but blur or crop anything you
-would rather not commit.
+The three cross-check each other: the two UIDs in `auth-users.png` are the two `user_id`
+values in `table-user-id.png`, and the 7 + 2 split in `sql-scoping.png` accounts for
+every row visible there.
+
+Checked before committing: no API key, no service-role key and no personal address is in
+frame, and both test accounts are synthetic `@example.com` ones. Anything
+re-captured later should be checked the same way, since a Settings → API screen would
+put a key in the repo.

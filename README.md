@@ -64,12 +64,15 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
    dialog sends no confirmation email, so an unconfirmed account would have no way to
    confirm itself and could not sign in.
 
-   While you are there, turn **off** public self-signup for the project. The app never
-   calls `signUp`, but the Auth API accepts one until that setting is off. You can check
-   it from the terminal without opening the dashboard:
+   While you are there, turn **off** public self-signup under **Authentication →
+   Sign In / Providers**. The app never calls `signUp`, but the Auth API accepts one
+   until that setting is off. You can check it from the terminal without opening the
+   dashboard:
 
    ```bash
-   curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY"      "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/settings" | grep -o '"disable_signup":[a-z]*'
+   curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+     "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/settings" \
+     | grep -o '"disable_signup":[a-z]*'
    # want: "disable_signup":true
    ```
 
@@ -105,17 +108,44 @@ Other scripts: `npm run typecheck` (`tsc --noEmit`), `npm run build`, `npm start
   count); the per-tag length and the notes-per-account cap are enforced in the DAL only,
   which is a recorded pending schema amendment rather than an oversight.
 
+## Supabase guidance in this repo
+
+The official Supabase Agent Skills are installed (`npx skills add supabase/agent-skills`)
+and pinned in [`skills-lock.json`](skills-lock.json) — `supabase` and
+`supabase-postgres-best-practices`, under `.agents/skills/`. Alongside them,
+[`docs/`](docs/) holds the Supabase documentation this project was built against, fetched
+via Context7, each file carrying its source URL and inline annotations. Both exist for
+the same reason: Supabase's auth patterns change often enough that training-data memory
+is the wrong authority for them.
+
 ## Verification
 
-The per-account scoping is verified in the Supabase dashboard, screenshots in
-[`docs/screenshots/`](docs/screenshots/) — see that folder's
-[README](docs/screenshots/README.md) for what each image must show.
+Per-account scoping, evidenced in the Supabase dashboard. All three captures are in
+[`docs/screenshots/`](docs/screenshots/).
 
-| Evidence | Screenshot |
-| --- | --- |
-| Both test accounts exist and were created in the dashboard | [`auth-users.png`](docs/screenshots/auth-users.png) |
-| Every row carries its owner's `user_id` | [`table-user-id.png`](docs/screenshots/table-user-id.png) |
-| `select user_id, count(*) from notes group by user_id;` returns two distinct owners | [`sql-scoping.png`](docs/screenshots/sql-scoping.png) |
+**Both accounts exist and were created by hand** — Authentication → Users. The app has
+no sign-up screen, so this is the only way an account gets made here.
+
+![Supabase Authentication → Users, showing the two test accounts](docs/screenshots/auth-users.png)
+
+**Every row carries its owner** — Table Editor → `public.notes`. The `user_id` column
+holds one of two uuids, and the table reports its 4 RLS policies (one per verb).
+
+![Supabase Table Editor on public.notes, with the user_id column populated](docs/screenshots/table-user-id.png)
+
+**The two accounts' rows are separate** — SQL Editor:
+
+```sql
+select user_id, count(*) as notes, min(created_at) as first_note
+from public.notes
+group by user_id
+order by notes desc;
+```
+
+Two rows come back: 7 notes for one `user_id`, 2 for the other, and no row without an
+owner (`user_id` is `not null` and defaults to `auth.uid()`).
+
+![The query result: two distinct user_id values, 7 and 2 notes](docs/screenshots/sql-scoping.png)
 
 The browser checklist that goes with them: sign in as A → create a note → reload (still
 there) → sign out → hit `/notes` directly (redirected to `/sign-in`) → sign in as B →
