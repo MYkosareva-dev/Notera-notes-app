@@ -1,13 +1,13 @@
 # Screenshots
 
-Six images, referenced from `README.md`. Two halves, split by who may take them.
+Five images, all referenced from `README.md`. Two halves, split by who may take them.
 
 ## Taken through the app (agent, real Chrome over CDP)
 
 | File | Viewport | What it shows |
 | --- | --- | --- |
 | `notes.png` | 1280 × 800 | The signed-in workspace: seven notes in the three-column grid with the tag sidebar at the right. Account A. |
-| `sign-in.png` | 1280 × 800 | `/sign-in`, signed out, both fields empty and no error text. Captured in a second, never-signed-in Chrome profile so the signed-in session was not disturbed. |
+| `sign-in.png` | 1280 × 760 | `/sign-in`, signed out, both fields empty and no error text. Captured in a second, never-signed-in Chrome profile so the signed-in session was not disturbed. |
 
 Both were captured against `npm run dev` with the Next dev indicator hidden for the
 capture only — a one-line injected `nextjs-portal{display:none}`, no source change. The
@@ -16,7 +16,7 @@ hover border and its `⋮` button and then reads as one card styled unlike the o
 
 ## Taken in the Supabase dashboard (owner only)
 
-The dashboard is outside the agent's remit, so these three ship as **placeholder PNGs**
+The dashboard is outside the agent's remit, so these three ship as 1280 × 720 **placeholder PNGs**
 that say so. Save the real capture over the placeholder under the same filename and
 every `README.md` link keeps working — no README edit needed.
 
