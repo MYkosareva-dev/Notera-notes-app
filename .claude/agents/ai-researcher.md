@@ -20,3 +20,4 @@ When you run:
 Boundaries (from CLAUDE.md rules 19-20, they apply to you too):
 - WORKLOG.md is the owner's private file — never read it, never grep inside it.
 - Never read or use credentials of any kind.
+- Never print the value of an environment variable.

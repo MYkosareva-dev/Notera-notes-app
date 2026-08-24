@@ -740,3 +740,24 @@ a recorded reason. Kept here so they are findable without reading the phase hist
    observation or reworded; (e) an offline theme click logs twice, once from
    `lib/callAction.ts` and once from the toggle — G-30 requires the second one, so this
    is worth knowing when reading a console rather than worth changing.
+19. **UNCONFIRMED MECHANISM: a restored Router Cache entry may re-apply a stale theme
+   prop over a persisted choice.** Reasoned from the code at the audit gate, not
+   observed. `setThemePreference` deliberately skips `revalidatePath` (G-30), so the
+   client Router Cache entry for `/notes` keeps whatever `theme` prop it was rendered
+   with; the effect at `components/ThemeToggle.tsx` then runs `setSelected(preference)`
+   and `applyTheme(preference)` on every mount, including the mount that a back/forward
+   navigation produces from that cached payload. G-30 sanctions the next SERVER RENDER
+   re-seeding the control from the cookie, and a restored cache entry is not a server
+   render — so this case is outside what was decided, and the effect widens the possible
+   desync from the control alone to the page.
+   **Owner's browser check (audit gate): could NOT reproduce — Back kept the page dark
+   after switching to Dark.** Recorded as a real negative result, with the reason it is
+   not yet conclusive: `applyTheme("system")` DELETES `data-theme` and hands the page
+   back to `prefers-color-scheme`, so on a dark OS a revert to `system` repaints dark
+   and the colour cannot move whatever the prop says. Two things make a future check
+   discriminating, and either settles it: pick the theme OPPOSITE the OS (Light on a
+   dark OS, or Dark on a light OS) so a revert to `system` has a visible colour to move
+   to; and read the CONTROL rather than the page, since `setSelected` flips the radio to
+   System with no dependence on the OS setting at all. Nothing is being changed on the
+   strength of a mechanism nobody has seen — this entry exists so the next person tests
+   the discriminating case instead of repeating the inconclusive one.
