@@ -101,7 +101,22 @@ const WIDE = [
 // an identifier named after the key matched the case-insensitive needle just as well as a
 // string does, and then so did the comment explaining the trick. Both happened.
 const WEB_STORAGE = new RegExp("local" + "Storage|" + "session" + "Storage", "i");
-const PRIVILEGED_KEY = new RegExp("service" + "_role", "i");
+// FOUR spellings, not one, and the extra three are why this check still means anything.
+// The legacy service-role name was the whole needle until the security audit on
+// lab/agents, which found it one key GENERATION behind the key this project actually
+// uses: an `sb_publishable_` key is paired with a secret key whose name shares NO
+// substring with the legacy one, and whose conventional variable name is the third
+// fragment below. A new-format secret key pasted into .env.example — the most plausible
+// place for it — passed every gate green. The fourth fragment is the same failure one
+// generation earlier: a hand-shortened legacy name.
+//
+// Note the phrasing above, and keep it: this comment cannot SPELL the strings it is about
+// without matching itself, which is the trap the paragraph above already records. Say
+// "the legacy service-role name", never the underscored form.
+const PRIVILEGED_KEY = new RegExp(
+  ["service" + "_role", "sb" + "_secret_", "SECRET" + "_KEY", "SERVICE" + "_KEY"].join("|"),
+  "i",
+);
 
 // Any quoting of the table name, and any whitespace. This matched `"notes"` only until
 // the /full-review: `.from('notes')` slipped straight past it, and nothing in this repo
@@ -139,6 +154,26 @@ function blankComments(src) {
     .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length));
 }
 
+/**
+ * The same, for SQL: `--` to end of line, plus block comments.
+ *
+ * A separate function because blankComments() does not know `--`, and the two SQL checks
+ * below would otherwise fail on the comments that EXPLAIN them: supabase/schema.sql now
+ * carries a note about why its one function spells out its security mode, and such a note
+ * cannot avoid naming the mode it is not. Exactly the lesson blankComments() was written
+ * for — a comment in the register this codebase writes in defeated the rule-7 check.
+ * Offsets and newlines are preserved, so reported line numbers stay true.
+ *
+ * Honest limit, same as its sibling: a blanker, not a parser. A `--` inside a string
+ * literal or a dollar-quoted body would blank the rest of that line. No file in
+ * supabase/ has one, and a false FAIL is the safe direction anyway.
+ */
+function blankSqlComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/--[^\n]*/g, (m) => " ".repeat(m.length));
+}
+
 /** Every line matching `re`, as "path:line: text" — the failure detail. */
 function hits(paths, re, { stripComments = false } = {}) {
   const found = [];
@@ -161,14 +196,15 @@ check(
   () => hits(WIDE, WEB_STORAGE),
 );
 
-// ── Block H check 5, second grep. Every code file the repo ships — app/, components/,
+// ── Block H check 5, second grep, widened at the security audit to all four spellings
+//    of the privileged key. Every code file the repo ships — app/, components/,
 //    lib/, proxy.ts, next.config.ts, postcss.config.mjs, scripts/, .env.example, plus
 //    supabase/. Prose about the key is not a use of it, so .agents/skills/, .claude/,
 //    docs/, SPEC.md, WORKLOG.md and .next/ stay out of scope by design (SPEC Block H
 //    check 5 names the known prose hits). ────────────────────────────────────────
 check(
-  "no service-role key",
-  "rule 4 — this project needs only the anon key",
+  "no privileged key, under any of its names",
+  "rule 4 — this project needs only the low-privilege key, and the privileged one has had two names",
   () => hits([...WIDE, ...SQL], PRIVILEGED_KEY),
 );
 
@@ -275,6 +311,58 @@ check(
     hits(WIDE, /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/, {
       stripComments: true,
     }),
+);
+
+// ── The two ways a schema hands out an RLS bypass (security audit, S3) ─────────
+//    Both are SQL-only, and this repo has ZERO of either today — these checks exist to
+//    keep that true, because each is one line that silently moves the fence. Not Block H
+//    checks: they automate two things the audit had to establish by reading the schema.
+check(
+  "no SECURITY DEFINER in supabase/",
+  "a definer-rights function runs as its OWNER, so it reads and writes rows the caller's RLS policies would refuse — the standard way RLS is bypassed after the fact",
+  () => {
+    const bad = [];
+    for (const path of SQL) {
+      blankSqlComments(read(path))
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          if (/security\s+definer/i.test(line)) {
+            bad.push(`${path}:${i + 1}: ${line.trim().slice(0, 100)}`);
+          }
+        });
+    }
+    return bad;
+  },
+);
+
+check(
+  "every view in supabase/ sets security_invoker",
+  "a view created without it runs with its OWNER's rights, so selecting from it returns rows the caller's RLS policies would refuse — Postgres defaults this OFF",
+  () => {
+    const bad = [];
+    // Statement-bounded, like the rule-7 check: `create view` and the `with (…)` clause
+    // that would clear it are routinely on different lines, so no per-line test can.
+    for (const path of SQL) {
+      const src = blankSqlComments(read(path));
+      const scanner = /create\s+(?:or\s+replace\s+)?(?:materialized\s+)?view\s+([^\s(]+)/gi;
+      for (let m = scanner.exec(src); m; m = scanner.exec(src)) {
+        const line = src.slice(0, m.index).split("\n").length;
+        const semi = src.slice(m.index).indexOf(";");
+        // An unterminated statement FAILS rather than opening the window to end of file —
+        // the same reasoning as the rule-7 chain check, where that fallback let a query
+        // borrow a filter written anywhere later in the module.
+        if (semi < 0) {
+          bad.push(`${path}:${line}: view ${m[1]} — no terminating ';', cannot bound it`);
+          continue;
+        }
+        const stmt = src.slice(m.index, m.index + semi);
+        if (!/security_invoker\s*=\s*(?:true|on)/i.test(stmt)) {
+          bad.push(`${path}:${line}: view ${m[1]} does not set security_invoker = true`);
+        }
+      }
+    }
+    return bad;
+  },
 );
 
 // ── App Router only ───────────────────────────────────────────────────────────

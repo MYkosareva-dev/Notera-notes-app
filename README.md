@@ -44,11 +44,26 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
 
    | Variable | Where it lives in the Supabase dashboard |
    | --- | --- |
-   | `NEXT_PUBLIC_SUPABASE_URL` | Project → **Settings → API** → "Project URL" |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Project → **Settings → API** → the **anon public** key |
+   | `NEXT_PUBLIC_SUPABASE_URL` | Project → **Settings → Data API** → "Project URL" |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Project → **Settings → API Keys** → the **Publishable key** (starts `sb_publishable_`) |
 
-   The app needs nothing else. The **service-role key is never used** — not in
+   The variable is named `ANON_KEY` for continuity with the rest of the sprint's
+   docs; **"publishable key" is the current name for the same low-privilege role**
+   that the `anon` key used to fill, and Supabase's own migration guide pairs them
+   directly. On a project created before the new panel there is no "API Keys" tab —
+   use the **anon public** key under **Legacy API keys** instead. Either one works
+   here; both are safe in a browser.
+
+   The app needs nothing else. **The secret key is never used** — not in
    `.env.local`, not in any `NEXT_PUBLIC_*` variable, not anywhere in this repo.
+   That is the key on the tab beside the publishable one, the replacement for the
+   old service-role key. Because every `NEXT_PUBLIC_*` value is inlined textually
+   into the browser bundle, pasting it into either variable above would publish a
+   row-level-security bypass to anyone who views source, and the app would boot and
+   work perfectly while doing so. [`lib/supabase/env.ts`](lib/supabase/env.ts)
+   therefore **refuses a secret key at boot** rather than trusting the instruction
+   in this table — it checks the prefix, so it catches the current key format and
+   not a legacy JWT (the file records that gap).
 
 4. **Create the table.** Open **SQL Editor** in the dashboard, paste
    [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates `public.notes`,
@@ -85,10 +100,12 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
    `/` redirects to `/notes`; signed out, `/notes` redirects to `/sign-in`.
 
 Other scripts: **`npm run check`** — dependency-free static checks over the code,
-enforcing the rules a type-checker cannot see: no web storage, no service-role key, no
-`getSession()` call site, every notes table access inside the DAL and every one of its
-query chains carrying a literal `.eq("user_id", user.id)`, plus a few outright
-prohibitions. It prints its own count and fails loudly if it scanned nothing. Honest
+enforcing the rules a type-checker cannot see: no web storage, no privileged key under
+any of its names (the legacy service-role one and the current secret one, since the
+new-format name shares no substring with the old), no `getSession()` call site, every
+notes table access inside the DAL and every one of its query chains carrying a literal
+`.eq("user_id", user.id)`, no privilege-escalating SQL object in `supabase/`, plus a few
+outright prohibitions. It prints its own count and fails loudly if it scanned nothing. Honest
 scope: it reads text, so it cannot tell whether that `user.id` came from `getUser()`, and
 nothing here re-verifies the live database. Also `npm run typecheck` (`tsc --noEmit`),
 `npm run build`, `npm start`.

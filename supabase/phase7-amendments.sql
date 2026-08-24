@@ -70,3 +70,20 @@ commit;
 -- d) The fence still holds where it counts — sign in as account A in the app and
 --    confirm the workspace still lists exactly A's notes. A policy rewrite that
 --    typoed a column name would pass (a) to (c) and return an empty list here.
+--
+-- e) Row-level security is still ENABLED — expects one row, `t`:
+--      select relrowsecurity from pg_class where oid = 'public.notes'::regclass;
+--
+--    ADDED AFTER THE FACT, by the security audit on `lab/agents` (finding W1), and
+--    recorded here rather than quietly backfilled: this file's verification block
+--    shipped WITHOUT it at the Phase 7 gate, and that was the gap. Query (c) above
+--    reads `pg_policies`, which lists policies that exist — not policies that are
+--    enforced. Postgres keeps them on a table whose row-level security is switched
+--    off and simply stops applying them, so (c) returns its four rows either way.
+--    Nor does (d) catch it: fence 1's explicit `.eq("user_id", user.id)` scopes the
+--    list by itself, so account A sees exactly A's notes with the fence down.
+--    Amendment 3 rewrote all four policies, which is precisely the kind of change
+--    after which you want to know the flag is still set — and nothing here asked.
+--
+--    Same query, and the same reasoning at more length, in
+--    `supabase/security-amendments.sql`, which is where it is now maintained.
