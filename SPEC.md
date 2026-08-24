@@ -415,9 +415,14 @@ the caret stay light on a dark page.
 > Decision: rule 6 gained one sentence rather than an exception — a non-secret display
 > preference in a cookie is neither note nor session data. Written down rather than
 > assumed, so a later `/review-auth` does not have to re-derive it.
-> Decision: the toggle is on `/sign-in` and in `Header`, and therefore NOT on
-> `/notes/[id]`, which has no header. The editor's sticky row is specified in this block
-> and sanctions two controls; adding a third there is an owner call, not a silent one.
+> Decision (owner, at the code-review gate): the toggle is on `/sign-in` and in
+> `Header`, and **stays off `/notes/[id]`**. Choosing a theme is a RARE action — once per
+> person, or once per change of mind — and it is reachable from both screens a person
+> passes through on the way to a note. The editor has no header, and its sticky row is
+> specified here with two controls that are both about the text being typed; a third
+> control there would be the only one on that screen with nothing to do with the note.
+> Asked and answered, so it is not an open question: the cost is one extra hop from the
+> editor to `/notes`, and that is accepted rather than overlooked.
 
 ### Screen: `/sign-in`
 - Layout: centered card (max-w-sm) on `--color-bg`; app name "Notera Notes" above the card; the theme control absolutely positioned in the top-right corner, so it does not push the card off the vertical middle.
@@ -657,3 +662,20 @@ a recorded reason. Kept here so they are findable without reading the phase hist
 11. **Silent offline sign-out, and no auto-resume after the rule B8 suspension.** Both
    are settled decisions rather than defects, taken at the Phase 4 gate — the offline
    case under Block E's `/notes` screen, the suspension under Block F's numbered rules.
+12. **A token-parity check across the two dark-mode remap blocks.** `app/globals.css`
+   writes each dark VALUE once, in the `--dark-*` staging block, so the OS path and the
+   explicit path cannot disagree about what `dark` means. What no amount of staging
+   closes is MEMBERSHIP: both blocks must list every token, and adding a fourteenth
+   colour to one and forgetting the other would make dark-by-OS and dark-by-choice
+   render different palettes. Today there are thirteen colours and three shadows in
+   each. Deferred at the code-review gate (owner decision): the real fix is a
+   build-time check, and inventing one for sixteen lines is not this sprint's work. The
+   hazard is named in the stylesheet so the next person to add a token reads it there.
+13. **The redefined `dark:` variant has zero callers, and stays.** Tailwind ships a
+   `dark:` variant keyed on `prefers-color-scheme` alone, which in this app is wrong by
+   construction — it would ignore an explicit Light choice on a dark OS. The block in
+   `app/globals.css` redefines it to match both theme paths. Nothing uses it, because
+   the token swap is the whole mechanism; it is kept because **deleting it would not
+   remove the variant, only the fix.** Accepted as recorded at the code-review gate, in
+   the same spirit as `lib/supabase/client.ts` keeping zero callers: not dead code, a
+   documented correction that has to be in place BEFORE the first caller needs it.

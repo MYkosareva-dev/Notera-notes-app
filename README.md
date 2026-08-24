@@ -194,8 +194,10 @@ appendices — a data-model walkthrough and the second optional task.
   deploy (recorded in SPEC Block A).
 - **Filtering is one tag at a time.** There is no multi-tag intersection and no search.
 - **The theme control is not on the note screen.** It is on `/sign-in` and in the
-  workspace header; the editor has no header, and its sticky row is specified with two
-  controls. Change theme from the list, not from inside a note.
+  workspace header. Choosing a theme is a rare action and both of those screens are on
+  the way to a note, so the editor keeps a sticky row that is only about the text being
+  typed. Change theme from the list, not from inside a note — a recorded decision, not
+  an omission.
 - **A theme change made offline is not remembered.** It applies at once and holds until
   you reload; the cookie write is what fails, and nothing is shown (SPEC G-30).
 - **Two of the five caps are app-enforced only.** A row written by hand in the SQL
