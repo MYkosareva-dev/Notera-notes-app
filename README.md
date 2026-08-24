@@ -67,9 +67,19 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
 
 4. **Create the table.** Open **SQL Editor** in the dashboard, paste
    [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates `public.notes`,
-   enables row-level security with one owner-only policy per verb, adds the index the
-   list ordering walks plus a GIN index for the tag filter, and installs the trigger
-   that touches `updated_at`.
+   enables row-level security with one owner-only policy per verb — each restricted to
+   the `authenticated` role — takes back the DML grants Supabase hands `anon` on every
+   new public table, adds the index the list ordering walks plus a GIN index for the tag
+   filter, and installs the invoker-rights trigger that touches `updated_at`.
+
+   That one file is all you run. The two migration files beside it,
+   [`phase7-amendments.sql`](supabase/phase7-amendments.sql) and
+   [`security-amendments.sql`](supabase/security-amendments.sql), are the record of what
+   brought an already-provisioned database to this shape, and each ends with the queries
+   that verify it — including `select relrowsecurity from pg_class where oid =
+   'public.notes'::regclass;`, which is the only one of them that can tell an **enforced**
+   fence from a decorative one. Policies keep existing on a table whose row-level security
+   has been switched off; they just stop being applied.
 
 5. **Create the test accounts.** There is no sign-up screen — by design (the assignment
    asks for dashboard-created accounts). In the dashboard go to

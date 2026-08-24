@@ -43,8 +43,19 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
    Server Actions never accept or trust a user id from the client — the DAL
    derives it from `getUser()`. Remember: every Server Action is a publicly
    callable endpoint; treat each one as such.
-4. **The service-role key must never appear** in app code, in any `NEXT_PUBLIC_*`
-   variable, or anywhere else in this repo. This project needs only the anon key.
+4. **A privileged Supabase key must never appear** in app code, in any
+   `NEXT_PUBLIC_*` variable, or anywhere else in this repo. It has two names —
+   `service_role` in the legacy dashboard panel, `sb_secret_…` in the current
+   one — and the prohibition covers both spellings and any variable named after
+   either. This project needs only the **low-privilege key**: the publishable
+   key (`sb_publishable_…`), which is what `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   holds; the variable keeps its older name, the role is the same.
+   `lib/supabase/env.ts` refuses a secret-prefixed value at boot, because every
+   `NEXT_PUBLIC_*` value is inlined into the browser bundle — a privileged key
+   there is an RLS bypass published to anyone who views source, and the app
+   would boot and work perfectly while doing it. That guard compares a prefix,
+   so it does not catch a legacy `service_role` JWT; `npm run check` is the
+   second net and covers all four spellings.
 5. **No hardcoded email addresses** anywhere in the code.
 
 ## Data rules

@@ -201,10 +201,10 @@ public.notes (user_id)
 -- Notera Notes — the whole schema, as it exists in the project's Supabase database.
 -- Run this file in the SQL Editor to provision a fresh project from nothing.
 --
--- It already includes the Phase 7 amendments, so a fresh clone gets the current shape
--- in one pass. `phase7-amendments.sql` is the migration that brought an ALREADY
--- provisioned database here (a pinned search_path, one index dropped, the policies
--- rewritten); it is kept as the record of what ran, not as a second thing to run.
+-- It already includes the Phase 7 amendments and the post-audit security amendments, so a
+-- fresh clone gets the current shape in one pass. `phase7-amendments.sql` and
+-- `security-amendments.sql` are the migrations that brought an ALREADY provisioned
+-- database here; they are kept as the record of what ran, not as further things to run.
 
 -- Notes table: one row per note, owned by exactly one auth user.
 create table public.notes (
@@ -226,20 +226,35 @@ create table public.notes (
 
 alter table public.notes enable row level security;
 
+-- Take back the grants Supabase hands every new public table. It grants DML to both
+-- `anon` and `authenticated`, so without this line row-level security is the ONLY thing
+-- between the publishable key and every row here — one fence, at the layer most likely to
+-- be switched off by hand during debugging and forgotten. Safe because nothing this app
+-- does reaches the table as `anon`: every notes query goes through lib/notes.ts, which
+-- calls getUser() first and refuses to run without a user. What it changes is the failure
+-- mode of a hypothetical bypass — a direct REST call carrying only the publishable key
+-- gets a permission error instead of being handed to RLS to adjudicate.
+revoke all on table public.notes from anon;
+
 -- RLS: each verb restricted to the row owner, and the owner is auth.uid() — the id in
 -- the request's JWT. The call is wrapped in `(select …)` so Postgres evaluates it ONCE
 -- per statement as an InitPlan instead of once per candidate row (Supabase's
 -- auth_rls_initplan advisory). `(select auth.uid()) = user_id` and `auth.uid() =
 -- user_id` accept exactly the same rows; only the cost differs.
+--
+-- `to authenticated` keeps each policy from being evaluated for a role that can never
+-- match it: for `anon`, auth.uid() is null and `null = user_id` is null, never true, so
+-- no row ever leaked without it. Cost, not exposure — and after the InitPlan rewrite
+-- above what it saves is one InitPlan per statement rather than a call per row.
 create policy "notes_select_own" on public.notes
-  for select using ((select auth.uid()) = user_id);
+  for select to authenticated using ((select auth.uid()) = user_id);
 create policy "notes_insert_own" on public.notes
-  for insert with check ((select auth.uid()) = user_id);
+  for insert to authenticated with check ((select auth.uid()) = user_id);
 create policy "notes_update_own" on public.notes
-  for update using ((select auth.uid()) = user_id)
-              with check ((select auth.uid()) = user_id);
+  for update to authenticated using ((select auth.uid()) = user_id)
+                            with check ((select auth.uid()) = user_id);
 create policy "notes_delete_own" on public.notes
-  for delete using ((select auth.uid()) = user_id);
+  for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- The list's ordering, owner-scoped: the screen walks (user_id, updated_at desc), and
 -- updated_at is the timestamp each card prints (Block E). A matching (user_id,
@@ -254,6 +269,12 @@ create index notes_tags_idx on public.notes using gin (tags);
 
 -- Auto-touch updated_at on every update.
 --
+-- The privilege mode is spelled out rather than left to the default, which is already
+-- invoker. A no-op that exists for the sake of the diff: the opposite mode is a two-word
+-- edit that would let this function read and write rows the caller's policies refuse, and
+-- a default cannot be reviewed — there is no line to notice changing. scripts/check.mjs
+-- also fails on the opposite mode anywhere in supabase/.
+--
 -- search_path is pinned empty (Supabase's function_search_path_mutable lint): a function
 -- that resolves unqualified names through the CALLER's search_path can be aimed at a
 -- look-alike object placed earlier in that path. Empty is safe for this body because it
@@ -262,6 +283,7 @@ create index notes_tags_idx on public.notes using gin (tags);
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+security invoker
 set search_path = ''
 as $$
 begin new.updated_at = now(); return new; end $$;
@@ -284,6 +306,13 @@ create trigger notes_set_updated_at
 > 4. **DECLINED — a database fence for `LIMITS.tagMax` (24 characters per tag) and `LIMITS.notesPerUser` (1,000 rows per user).** Neither is expressible as a `check` constraint here: a per-element length test over a `text[]` needs a subquery, and a per-user row count needs to see other rows, so both mean a **trigger** — a plpgsql function on every insert and update of the table that autosaves while the user types. That is disproportionate for a local study project with two accounts, and it is the same write path the GIN index already taxes.
 >
 >    **Accepted, documented limitation.** What guards these two caps instead: `lib/notes.ts` enforces both on write (`createNote` counts rows before inserting; `updateNote` refuses a patch holding an over-long tag), and the read side refuses an over-long *filter* value without a round-trip. What stays unguarded is precisely one thing — a row written by hand in the SQL Editor can hold a tag longer than 24 characters or push an account past 1,000 notes, and the database will accept it. The blast radius is small and known: an over-long stored tag renders truncated on the card (`lib/tagChip.ts`), and it makes the next tag patch on that note fail validation until it is removed. The three constraints that ARE in the schema (title length, content length, tag count) stay as the second fence for the caps that a `check` can express. Revisit if this app ever gains a second writer that is not `lib/notes.ts`.
+
+> Decision (post-Phase-7, owner-run): **three security amendments, from the `security-auditor` subagent's audit on `lab/agents`.** The DDL is `supabase/security-amendments.sql`; it **ran in the SQL Editor**, and all five of its verification queries read as described — `relrowsecurity` is `t`, `has_table_privilege('anon', …)` is false for all four verbs, every policy's `roles` column reads `{authenticated}`, `prosecdef` is false with the pinned empty `search_path` intact, and the signed-in app lists, creates and edits notes normally. The code block above and `supabase/schema.sql` were rewritten in the same change to match what now exists (rule 8). These were the audit's three **Suggestions**; its three Warnings were code and documentation fixes and needed no DDL.
+> 1. **`revoke all on table public.notes from anon`.** Supabase grants DML on every new public table to both `anon` and `authenticated`, and this schema had never touched table privileges — so row-level security was the *only* thing between the publishable key and every row in the table. Exactly one fence, at the layer most likely to be switched off by hand during debugging and forgotten. Safe because nothing this app does reaches the table as `anon`: every notes query goes through `lib/notes.ts`, which calls `getUser()` first and refuses to run without a user, so an unauthenticated caller is turned away before a query is built. What changes is the failure mode of a hypothetical bypass — a direct REST call carrying only the publishable key now gets a permission error rather than being handed to RLS to adjudicate.
+> 2. **The four policies restricted with `to authenticated`.** This **closes post-sprint debt item 1**, which parked it as "worth folding into the next DDL run that happens for another reason" — this was that run. The assessment recorded there stands, and is worth restating so nobody reads it as a leak that was left open: for `anon`, `auth.uid()` is null and `null = user_id` is null, never true, so no row ever leaked without it. Cost, not exposure, and after amendment 3 of the Phase 7 batch what it saves is one InitPlan per statement rather than a call per row. Applied with `alter policy`, not drop-and-recreate, so the table was never momentarily without a policy — not even inside the transaction.
+> 3. **`set_updated_at`'s privilege mode spelled out as `security invoker`.** Invoker is already the default, so this is a **no-op executed for the sake of the diff**: the opposite mode is a two-word edit that would let this function read and write rows the caller's policies refuse, and a default cannot be reviewed — there is no line to notice changing. Written out, flipping it becomes a visible change to a security-relevant line. `scripts/check.mjs` now also fails on the opposite mode, and on a view created without `security_invoker`, anywhere in `supabase/` — the automated half of the same guard, and the two ways RLS is most often bypassed after the fact.
+>
+>    **What the audit did NOT change, stated so the fence is not misread as having moved:** which rows a signed-in user can see. Fence 1 (`lib/notes.ts`, `getUser()` plus an explicit `.eq("user_id", user.id)`) and the four owner-only predicates are byte-for-byte what they were. Two of the three amendments narrow *who can reach the table at all*, and the third only makes a future weakening visible.
 
 ### Seed data (run AFTER creating the two test accounts; replace the UUIDs with the real ones from Authentication → Users)
 ```sql
@@ -518,7 +547,9 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 **Rate limiting:** Supabase Auth's built-in limits are accepted as-is; no custom throttling (recorded decision, single-developer test accounts).
 
 ### Security
-- RLS on `public.notes` for all four verbs (Block C) + explicit `user_id` filter (B4).
+- RLS on `public.notes` for all four verbs, each restricted `to authenticated` (Block C)
+  + explicit `user_id` filter (B4), and `anon`'s default DML grants on the table revoked,
+  so the publishable key alone cannot reach it at all.
 - Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` exist as env vars; the service-role key is never added to the project in any form.
 - No hardcoded email addresses anywhere in the repo.
 - All user text renders through JSX text nodes; `dangerouslySetInnerHTML` prohibited.
@@ -602,13 +633,15 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 Settled decisions that are deliberately NOT part of Block H — none blocks Done, each has
 a recorded reason. Kept here so they are findable without reading the phase history.
 
-1. **RLS policies get `to authenticated`.** The four policies are evaluated for the
-   `anon` role too, where `auth.uid()` is null and the predicate is simply false — no
-   row leaks, so this is cost, not exposure. Adding `to authenticated` skips the
-   evaluation for a role that can never match — though after amendment 3 what it saves is ONE InitPlan per
-   statement, not a call per row, so amendment 3 already absorbed most of this item's value. Deferred at the Phase 7
-   `/review-auth` (owner decision): it is worth folding into the next DDL run that
-   happens for another reason, and not worth a run of its own.
+1. ~~**RLS policies get `to authenticated`.**~~ **CLOSED** — it rode along in
+   `supabase/security-amendments.sql`, the post-Phase-7 DDL run prompted by the
+   `security-auditor` audit, exactly as this item asked ("worth folding into the next DDL
+   run that happens for another reason"). Kept here rather than deleted because the
+   reasoning is the useful part: the policies were evaluated for `anon` too, where
+   `auth.uid()` is null and the predicate is simply false, so **no row ever leaked** — it
+   was cost, not exposure, and after the Phase 7 InitPlan rewrite the cost was one
+   InitPlan per statement rather than a call per row. See the Block C decision for what
+   ran and how it verified.
 2. **`secure` and `httpOnly` on the auth cookies.** The `@supabase/ssr` defaults ship
    `httpOnly: false` because `createBrowserClient` reads the session through
    `document.cookie`; accepted for a local-only sprint with no injection sink, and to be
@@ -625,8 +658,20 @@ a recorded reason. Kept here so they are findable without reading the phase hist
    `typecheck`, `build` and all ten review questions would stay green. Shape: read the
    URL and anon key from `.env.local` inside the script (never typed by a human, never a
    password — rule 20 is untouched), then `GET {URL}/rest/v1/notes?select=id` with the
-   anon key alone must come back empty or refused, and `GET {URL}/auth/v1/settings` must
-   report `"disable_signup":true`, which also automates Block H check 9. ~40 lines,
+   publishable key alone must come back **refused — a 401/403 permission error, and no
+   longer merely "empty"**, and `GET {URL}/auth/v1/settings` must report
+   `"disable_signup":true`, which also automates Block H check 9.
+   **Sharpened by the post-Phase-7 revoke, and this is the part that makes the probe worth
+   writing.** "Empty or refused" was a weak assertion: an empty `200` is what that request
+   returns whether RLS is enforcing or the table simply has no rows, so the probe could
+   not distinguish a working fence from an empty database — the same class of blind spot as
+   finding W1. With `anon`'s grants revoked the request is refused at the privilege layer
+   *before* RLS is consulted, which is a positive signal rather than an absence, and an
+   empty `200` becomes a **finding**: it means the grants came back. Note what this still
+   cannot see — `relrowsecurity` is not readable over PostgREST, so the probe tests the
+   grant fence, not the RLS flag. Reading that flag needs the SQL Editor (or a session
+   with SQL access), which is why verify query (a) in `supabase/security-amendments.sql`
+   stays a human step. ~40 lines,
    `fetch`, no dependency; skips with a clear message when `.env.local` is absent. It
    stays OUT of `npm run check` on purpose: that command is hermetic and offline, which
    is why it can lead the gate ritual.
