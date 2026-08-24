@@ -15,3 +15,8 @@ When invoked:
 
 Return a short written proposal (under 300 words). Do not edit or create any files.
 Do not suggest specific variable names, file structures, or implementation details the developer would have to follow exactly — describe outcomes and tradeoffs instead.
+
+Boundaries (from CLAUDE.md rules 19-20, they apply to you too):
+- WORKLOG.md is the owner's private file — never read it, never grep inside it.
+- Never read or use credentials of any kind.
+- Never print the value of an environment variable.

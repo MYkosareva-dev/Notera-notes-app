@@ -679,3 +679,64 @@ a recorded reason. Kept here so they are findable without reading the phase hist
    remove the variant, only the fix.** Accepted as recorded at the code-review gate, in
    the same spirit as `lib/supabase/client.ts` keeping zero callers: not dead code, a
    documented correction that has to be in place BEFORE the first caller needs it.
+14. **The list read ships every note's full body.** `NOTE_COLUMNS` in `lib/notes.ts`
+   selects `content`, and `listNotes` reads through it, so `/notes` transfers up to
+   `LIMITS.contentMax` characters per note in order to paint the two-line CSS clamp in
+   `components/NoteCard.tsx` — on every list render, every tag-chip click, and every
+   navigation back to the list. At a few hundred notes this is already the dominant cost
+   on the app's busiest route, and at `LIMITS.notesPerUser` it is the largest single
+   number in the app. Raised at the audit gate (`ai-architect`) and recorded here
+   because it had never been written into the repo at all: the fix is a preview source
+   — a view, a generated column, or a truncating projection — plus splitting the list
+   read's row type from the single-note read's, and what deferring costs is that every
+   later consumer of the one shared type has to be revisited when it finally splits.
+15. **The tag sidebar has no cap and no usage ordering.** `listTags` reads the `tags`
+   column of up to `LIMITS.notesPerUser` rows and builds the distinct set in Node;
+   `components/TagFilter.tsx` then renders one link per distinct tag with nothing
+   bounding the count. Phase 6 settled the layout for sixteen tags by wrapping, but
+   `LIMITS.tagsPerNote` times `LIMITS.notesPerUser` is thousands of distinct tags, and
+   the failure is visual before it is slow: a sidebar taller than the grid beside it.
+   The `text[]` model is a recorded and well-reasoned decision at ten tags per note
+   (Block C), and it is also exactly what makes every obvious remedy — order by usage,
+   cap with a "more" affordance, rename a tag everywhere — a full scan. Deferred at the
+   audit gate: no user in this sprint reaches the count, and the remedy is a Block C
+   amendment plus a DDL run, not a styling change.
+16. **`NoteEditor` assumes it is the only writer, and until a precondition exists it
+   must stay the only one.** `diff()` in `components/NoteEditor.tsx` decides what to
+   send by comparing the draft against a client-held `saved` ref, and `updateNote`
+   replaces whole fields with no `updated_at` precondition. Two tabs on one note is
+   already recorded as accepted last-write-wins (Block F). What is NOT covered is a
+   SECOND WRITE SURFACE — an inline rename, a bulk tag action, anything that writes a
+   note outside the editor: it would leave `saved.current` stale while the indicator
+   still reads "Saved", so the next keystroke silently reverts the other surface's
+   write. **The rule, until that precondition exists: all note writes route through the
+   editor.** Recorded at the audit gate rather than fixed, because the fix is a schema
+   and DAL change (a compare-and-set on `updated_at`, plus a conflict outcome the UI has
+   to say something about) and nothing in Block B asks for a second surface yet.
+17. **The three items above compound the `revalidatePath` cost already measured under
+   rule B1.** That measurement — ~6.4 kB and 2-3 Supabase round-trips per autosave — is
+   recorded with its reasoning in Block B and is genuinely settled; what the audit gate
+   added is that it does not stand alone. The discarded re-render is a re-render of the
+   route whose list read is item 14 and whose sidebar is item 15, so the per-autosave
+   cost scales with both. Consequence for whoever picks these up: items 14, 15 and the
+   B1 amendment are one conversation, not three, and measuring any of them in isolation
+   will understate it.
+18. **Five non-behavioural findings from the audit gate's code review**, none of them
+   fixed, each a smell rather than a defect: (a) `theme?: ThemePreference` in
+   `components/Header.tsx` is optional so that `app/notes/loading.tsx` can omit it,
+   which makes a future page that simply forgot to thread the cookie type-check and ship
+   an inert control — a required prop with an explicit unknown value, or a separate
+   skeleton component, would make the fallback deliberate; (b) `--dark-color-on-accent`
+   re-types the hex of `--dark-color-bg` twenty lines above it in `app/globals.css`,
+   which is safely a `var()` and is the one exception to that block's own "no duplicated
+   hex values" comment (the other two repeats are cross-palette and would resolve
+   circularly, so they need a shared neutral ramp or nothing); (c) item 13's redefined
+   `dark:` variant emits no CSS today, confirmed absent from the compiled stylesheet, so
+   a clean build and a clean browser pass are not evidence the selector works — one
+   throwaway `dark:` utility exercised in a probe would turn that recorded decision into
+   a verified one; (d) the "a queued second write simply wins" comment in
+   `components/ThemeToggle.tsx` asserts an ordering the code does not establish (a bare
+   awaited call, no transition and no in-flight guard), so it should either be pinned by
+   observation or reworded; (e) an offline theme click logs twice, once from
+   `lib/callAction.ts` and once from the toggle — G-30 requires the second one, so this
+   is worth knowing when reading a console rather than worth changing.
