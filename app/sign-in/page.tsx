@@ -1,7 +1,9 @@
 import { NotebookPen } from "lucide-react";
 
 import { SignInForm } from "@/components/SignInForm";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { copy } from "@/lib/copy";
+import { getThemePreference } from "@/lib/theme.server";
 
 /**
  * Public sign-in screen (SPEC Block E). A Server Component shell around the
@@ -13,9 +15,21 @@ import { copy } from "@/lib/copy";
  * working the worst case is a signed-in user seeing a form — no data is exposed,
  * which is why this one may live in the interceptor while real guards may not.
  */
-export default function SignInPage() {
+export default async function SignInPage() {
+  const theme = await getThemePreference();
+
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center px-4 py-12">
+    <main className="relative flex min-h-dvh flex-col items-center justify-center px-4 py-12">
+      {/* This screen has no `Header`, so the control is placed here rather than
+          inherited. It has to be reachable HERE and not only inside the workspace:
+          /sign-in is the first thing a new visitor sees, and a preference that can
+          only be set after signing in is a preference the sign-in screen ignores.
+          Absolute so it stays in the corner without pushing the centred card off
+          the vertical middle. */}
+      <ThemeToggle
+        preference={theme}
+        className="absolute top-4 right-4 sm:top-6 sm:right-6"
+      />
       <div className="mb-8 flex flex-col items-center gap-3">
         {/* Decorative — the app name below it is the accessible text. */}
         <span

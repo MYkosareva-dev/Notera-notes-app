@@ -69,7 +69,7 @@ import { TAG_CHIP_SHAPE } from "@/lib/tagChip";
  * that split.
  */
 const CHIP = `${TAG_CHIP_SHAPE} block border px-3 py-1.5 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`;
-const CHIP_ACTIVE = "border-accent bg-accent text-white";
+const CHIP_ACTIVE = "border-accent bg-accent text-on-accent";
 const CHIP_IDLE =
   "border-border bg-surface text-text-muted hover:border-text/15 hover:text-text";
 

@@ -45,6 +45,21 @@ export const copy = {
     rateLimited: "Too many attempts. Wait a minute and try again.",
   },
 
+  // The three-state theme control (SPEC Block E, "Dark palette"). `label` names the
+  // group; the three options name themselves. `System` is first because it is the
+  // default and the only one the server can render without guessing — the reason the
+  // control has three states rather than two (owner decision at the architect gate).
+  //
+  // Each option's visible text IS its accessible name, so there is no separate
+  // aria-label to keep in sync. They stay short because the group sits in a sticky
+  // header beside two other controls at 375 px.
+  theme: {
+    label: "Theme",
+    system: "System",
+    light: "Light",
+    dark: "Dark",
+  },
+
   errors: {
     // SPEC Block E: the generic failure message. Shown by app/error.tsx, and
     // returned by the signIn action for any failure that is neither bad

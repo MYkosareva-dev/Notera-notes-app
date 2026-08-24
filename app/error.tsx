@@ -37,7 +37,7 @@ export default function RootError({
         <button
           type="button"
           onClick={reset}
-          className="mt-6 w-full rounded-control bg-accent px-4 py-2.5 text-sm font-medium text-white shadow-card transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="mt-6 w-full rounded-control bg-accent px-4 py-2.5 text-sm font-medium text-on-accent shadow-card transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           {copy.common.tryAgain}
         </button>

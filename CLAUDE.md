@@ -50,6 +50,13 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
 ## Data rules
 6. **Supabase is the only persistence layer.** No note data — and no session data —
    in `localStorage` or `sessionStorage`, under any circumstances.
+   A non-secret DISPLAY PREFERENCE in a cookie is neither note data nor session
+   data, and this rule does not reach it: it carries no identity, grants nothing,
+   and a forged value can only repaint the page for whoever forged it. The theme
+   preference (`lib/theme.ts`) is the one such value, and it is in a cookie rather
+   than web storage for the reason web storage cannot serve — the server must know
+   it before the first byte or the page paints in the wrong theme. The ban on web
+   storage itself stays absolute, with no exception of any kind.
 7. **Every notes query filters by the signed-in user's id** (`.eq('user_id', user.id)`).
    RLS is enabled as the second fence, but the explicit filter is still mandatory.
 8. Schema changes go through `supabase/schema.sql` — keep the file in sync with

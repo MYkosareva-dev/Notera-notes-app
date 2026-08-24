@@ -42,9 +42,17 @@ export interface NotePatch {
 }
 
 /**
- * Why a notes operation refused. One union, shared by the DAL (which throws it),
- * the Server Actions (which return it) and `NoteEditor` (which maps each case to
- * copy and to a behaviour).
+ * Why an operation refused. One union, shared by the DAL (which throws it), the
+ * Server Actions (which return it) and `NoteEditor` (which maps each case to copy
+ * and to a behaviour).
+ *
+ * Notes are what it was written for and what all five cases describe. One non-notes
+ * action now shares it — `setThemePreference`, which uses `invalid` for a payload
+ * that is not one of the three theme words and can never produce the other four.
+ * Kept shared rather than split: `callAction` returns this shape for a transport
+ * failure whoever the caller is, so a second union would have to duplicate
+ * `unavailable` to say the same thing. Worth revisiting if a third such action
+ * appears.
  *
  * Discriminated rather than a bare message, for the reason SPEC rule B8 and edge
  * case G-1 need: "the save failed" is three different situations. `unavailable`

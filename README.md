@@ -109,6 +109,13 @@ nothing here re-verifies the live database. Also `npm run typecheck` (`tsc --noE
 - **Editing is debounced, not per-keystroke.** Inputs hold local state and push through
   one Server Action after 300 ms of quiet, with a 5 s maximum wait, then
   `revalidatePath`. Nothing writes to Supabase from a component.
+- **Dark mode is a token swap.** Every colour is a `@theme` variable, so the dark theme
+  redefines those variables and no component carries a `dark:` utility. The preference is
+  a cookie, read in the root layout and stamped on `<html data-theme>` — so the first
+  byte already carries the right theme and there is no flash and no blocking script in
+  `<head>`. The control has three states, and **System** is the default: with no
+  attribute stamped, `prefers-color-scheme` in CSS decides. It works on `/sign-in`,
+  before any account exists, which is also why the preference is not a database column.
 - **Limits** all come from `LIMITS` in `lib/types.ts` — 200 characters per title,
   50,000 per note, 24 per tag, 10 tags per note, 1,000 notes per account. Three of them
   have a matching `check` constraint in the database (title length, content length, tag
@@ -186,6 +193,11 @@ appendices — a data-model walkthrough and the second optional task.
   `@supabase/ssr` defaults — `secure` and `httpOnly` are decisions to revisit before any
   deploy (recorded in SPEC Block A).
 - **Filtering is one tag at a time.** There is no multi-tag intersection and no search.
+- **The theme control is not on the note screen.** It is on `/sign-in` and in the
+  workspace header; the editor has no header, and its sticky row is specified with two
+  controls. Change theme from the list, not from inside a note.
+- **A theme change made offline is not remembered.** It applies at once and holds until
+  you reload; the cookie write is what fails, and nothing is shown (SPEC G-30).
 - **Two of the five caps are app-enforced only.** A row written by hand in the SQL
   Editor can carry a tag longer than 24 characters, or push an account past 1,000
   notes; nothing written through the app can. A deliberate trade — see SPEC Block C.

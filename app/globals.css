@@ -40,6 +40,26 @@
      dialog). Note this is the only NEW motion: the pre-existing `animate-spin`
      and `animate-pulse` are untouched by Phase 5. */
   --animate-rise: rise 160ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Phase 8 (dark mode) adds exactly one COLOUR token, and it is the one the dark
+     palette cannot do without. Six places wrote `text-white` directly on an accent
+     or danger fill (error.tsx, ConfirmDialog, NewNoteButton, SignInForm, TagFilter,
+     Toast). White is correct on a dark indigo and wrong on a light one, and dark
+     mode inverts that fill — so the literal had to become a token before the
+     palette could invert. Naming it also closes six of the un-tokenized one-offs
+     the Phase 5 gate parked. It is a ROLE, not a hue: "whatever reads on top of a
+     filled control". */
+  --color-on-accent: #ffffff;
+
+  /* The modal scrim, and the second token dark mode forced into existence.
+     `ConfirmDialog`'s backdrop was `bg-text/40` — an alpha of the INK — which is
+     correct on a white page and inverts into a 40% white haze the moment the ink
+     goes light. A scrim is the one role in the palette that must NOT follow its
+     neighbours: it always darkens what is behind it, in both themes. So it stops
+     being an alpha of another token and becomes its own, carrying its own opacity.
+     Caught by the code review on this branch — and it is exactly the case the
+     "an alpha OF a token inverts for free" rule does not cover. */
+  --color-scrim: rgb(16 24 40 / 0.4);
 }
 
 @keyframes rise {
@@ -67,6 +87,160 @@
    corner of every card. Tailwind's own `hover:` variant is already guarded this
    way, so this variant only supplies the matching resting state. */
 @custom-variant can-hover (@media (hover: hover));
+
+/* -----------------------------------------------------------------------------
+   DARK MODE (SPEC Block B scope amendment, Block E "Dark palette")
+
+   The whole feature is a TOKEN SWAP. Every colour in this app is already a
+   `@theme` variable, so redefining those variables repaints the app without a
+   single `dark:` utility in any component -- which is why the diff touches almost
+   no markup. Every dark VALUE is written once, in the `--dark-*` staging block
+   below; the two remap blocks under it only point at those values.
+
+   Three states, one attribute (see lib/theme.ts):
+     data-theme="dark"   -> dark, chosen explicitly
+     data-theme="light"  -> light, chosen explicitly
+     no attribute        -> follow the OS (`system`, the default)
+
+   The root layout stamps the attribute from a cookie BEFORE the first byte, so
+   there is no flash and no blocking inline script. A visitor with no cookie is
+   served no attribute and gets their OS theme from the media query below -- the
+   stylesheet alone, no JavaScript involved.
+
+   WHY THE VALUES ARE STAGED IN `--dark-*` FIRST. The two selectors that need them
+   cannot be merged: one lives inside a media query and the other does not, and CSS
+   has no way to share a declaration block across that boundary. Staging the values
+   on `:root` means each dark colour is WRITTEN ONCE and the two blocks below only
+   re-point at it -- so the two paths cannot disagree about what `dark` MEANS.
+   What it does not close: both blocks must still LIST every token. Add a token to
+   one and forget the other, and dark-by-OS and dark-by-choice render different
+   palettes. There are thirteen colours and three shadows in each block below;
+   they must stay the same length. (Named rather than fixed: the fix is a build-time
+   check, and inventing one for sixteen lines is not this sprint's work.)
+   (`light-dark()` would remove the duplication outright, and was not used: the
+   palette is consumed through alpha modifiers in seventeen distinct utilities --
+   `border-text/15`, `text-text-muted/70`, `ring-danger/*`, `bg-surface/95`,
+   `bg-bg/85`, `border-border/70`, `bg-border/80` and more -- which Tailwind compiles
+   to `color-mix(..., var(--color-...) ...)`, and nesting `light-dark()` inside
+   `color-mix()` is exactly the interop this sprint should not be betting on.
+   The first version of this note said "four places", and the short list is what let
+   `backdrop:bg-text/40` through: the scrim was the eighteenth, and the only one whose
+   role must not invert. It is `--color-scrim` now. An enumeration offered as evidence
+   has to be complete or it is worse than a count.)
+
+   Hue discipline holds, as it has since Phase 5: no new hue enters the palette.
+   The dark values are the SAME indigo, red and neutral ramp read from the other
+   end -- twice literally, since the dark surface is the light palette's ink
+   (#1a1d23) and the dark ink is the light palette's ground (#f6f7f9).
+   ----------------------------------------------------------------------------- */
+:root {
+  /* Neutrals. `surface` sits ABOVE `bg` in dark just as it does in light -- a card
+     is still the raised thing -- which is why bg is the darker of the two. */
+  --dark-color-bg: #12141a;
+  --dark-color-surface: #1a1d23;
+  --dark-color-border: #2b303a;
+  --dark-color-text: #f6f7f9;
+  --dark-color-text-muted: #9aa3b2; /* lifted from #6b7280: the light muted fails on this ground */
+
+  /* Accent. The direction of emphasis REVERSES: on white, "stronger" means a
+     darker indigo; on this ground it means a lighter one, so accent-strong is
+     lighter than accent here and darker than it in light mode. Both are still the
+     hover/active fill of the same control. */
+  --dark-color-accent: #a5b4fc;
+  --dark-color-accent-soft: #23263f; /* the tint becomes a shade -- an indigo GROUND, not a wash */
+  --dark-color-accent-strong: #c7d2fe;
+
+  /* Danger, same reversal. */
+  --dark-color-danger: #f87171;
+  --dark-color-danger-soft: #2a1719;
+  --dark-color-danger-strong: #fca5a5;
+
+  /* A light fill wants dark ink on it. This is the token from the @theme block
+     above doing the only job it has. */
+  --dark-color-on-accent: #12141a;
+
+  /* Blacker and heavier than the light scrim, because it has to darken a page that
+     is already dark. Not an alpha of any other token, by design -- see above. */
+  --dark-color-scrim: rgb(0 0 0 / 0.62);
+
+  /* Shadows carried hardcoded rgb(16 24 40 / ...) triples -- a blue-black tuned for
+     a white page, and near-invisible on this one. Dark mode needs real black at much
+     higher alpha to read as elevation at all. Same three depths, same geometry. */
+  --dark-shadow-card: 0 1px 3px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.4);
+  --dark-shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.55), 0 2px 4px rgb(0 0 0 / 0.4);
+  --dark-shadow-pop: 0 12px 28px rgb(0 0 0 / 0.65), 0 2px 6px rgb(0 0 0 / 0.5);
+
+  /* Tells the UA which way the app is painted, so form controls, scrollbars, the
+     caret and the default selection colour follow. Without this line the inputs in
+     the editor and on the sign-in form stay light-themed on a dark page -- the
+     single most visible thing a dark mode can forget. */
+  color-scheme: light;
+}
+
+/* Path 1 -- `system`: no attribute, so the OS decides. `:not([data-theme="light"])`
+   is what makes an explicit LIGHT choice survive a dark OS; without it this block
+   would win on source order and the Light option would do nothing. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: var(--dark-color-bg);
+    --color-surface: var(--dark-color-surface);
+    --color-border: var(--dark-color-border);
+    --color-text: var(--dark-color-text);
+    --color-text-muted: var(--dark-color-text-muted);
+    --color-accent: var(--dark-color-accent);
+    --color-accent-soft: var(--dark-color-accent-soft);
+    --color-accent-strong: var(--dark-color-accent-strong);
+    --color-danger: var(--dark-color-danger);
+    --color-danger-soft: var(--dark-color-danger-soft);
+    --color-danger-strong: var(--dark-color-danger-strong);
+    --color-on-accent: var(--dark-color-on-accent);
+    --color-scrim: var(--dark-color-scrim);
+    --shadow-card: var(--dark-shadow-card);
+    --shadow-card-hover: var(--dark-shadow-card-hover);
+    --shadow-pop: var(--dark-shadow-pop);
+    color-scheme: dark;
+  }
+}
+
+/* Path 2 -- `dark` chosen explicitly. Same remap, and it must hold on a LIGHT OS
+   too, so it cannot live inside the media query above. */
+:root[data-theme="dark"] {
+  --color-bg: var(--dark-color-bg);
+  --color-surface: var(--dark-color-surface);
+  --color-border: var(--dark-color-border);
+  --color-text: var(--dark-color-text);
+  --color-text-muted: var(--dark-color-text-muted);
+  --color-accent: var(--dark-color-accent);
+  --color-accent-soft: var(--dark-color-accent-soft);
+  --color-accent-strong: var(--dark-color-accent-strong);
+  --color-danger: var(--dark-color-danger);
+  --color-danger-soft: var(--dark-color-danger-soft);
+  --color-danger-strong: var(--dark-color-danger-strong);
+  --color-on-accent: var(--dark-color-on-accent);
+  --color-scrim: var(--dark-color-scrim);
+  --shadow-card: var(--dark-shadow-card);
+  --shadow-card-hover: var(--dark-shadow-card-hover);
+  --shadow-pop: var(--dark-shadow-pop);
+  color-scheme: dark;
+}
+
+/* NOT a convenience — a CORRECTION of a built-in. Tailwind ships a `dark:` variant
+   keyed on `prefers-color-scheme` alone, so in this app it is wrong by construction:
+   it would ignore an explicit Light choice on a dark OS and disagree with the tokens
+   above. The variant exists whether or not this block does; redefining it is what
+   makes the built-in safe to reach for. Nothing uses it today (the token swap is the
+   whole mechanism) and it is deliberately kept anyway — deleting it would not remove
+   the variant, only the fix. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]) *, :root:not([data-theme="light"])) {
+      @slot;
+    }
+  }
+  &:where(:root[data-theme="dark"] *, :root[data-theme="dark"]) {
+    @slot;
+  }
+}
 
 @layer base {
   body {

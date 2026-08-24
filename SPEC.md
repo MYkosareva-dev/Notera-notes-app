@@ -163,7 +163,28 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 - [ ] Direct URL access to a foreign note renders not-found (RLS returns no row)
 - [ ] SQL Editor shows rows with two distinct `user_id` values
 
-> Scope decision: IN — sign-in/out, protected workspace, notes CRUD with autosave, tags + tag filter, minimalist Notera-derived design. OUT — do NOT build: sign-up page, password reset, search, image uploads, sharing, realtime sync, dark mode, kanban boards, note-to-note links, export. The OUT list is a prohibition, not a backlog.
+> Scope decision: IN — sign-in/out, protected workspace, notes CRUD with autosave, tags + tag filter, minimalist Notera-derived design, dark-mode toggle. OUT — do NOT build: sign-up page, password reset, search, image uploads, sharing, realtime sync, kanban boards, note-to-note links, export. The OUT list is a prohibition, not a backlog.
+>
+> **Amendment — 2026-08-24, owner override, branch `lab/agents`.** `dark mode` moved OUT → IN
+> for a lab exercise on subagent workflows. This is the only item ever moved off the OUT list;
+> every remaining entry is unchanged and still a prohibition, and rule 17 continues to bind for
+> all of them. The approach was proposed and approved at an architect gate before any
+> code was written; the acceptance boxes are US7 below.
+
+### US7 — Dark mode *(owner override, branch `lab/agents`)*
+1. Mara opens `/sign-in` on a machine set to dark → the page is already dark, with no
+   flash of light and no correction after load; the control shows **System**.
+2. She picks **Light** → the page turns light immediately and stays light after a
+   reload, and stays light even though her OS is still dark.
+3. She signs in; `/notes` and the editor honour the same choice, and the control in the
+   header shows **Light**.
+4. She picks **System** → the choice is cleared and the page follows the OS again.
+- [ ] The first paint matches the stored preference — no flash, on any of the three states
+- [ ] An explicit **Light** choice survives a dark OS, and the reverse
+- [ ] The choice survives a reload, a sign-out and a sign-in
+- [ ] The control is reachable and correct on `/sign-in`, before any account exists
+- [ ] Keyboard: one tab stop for the group, arrows move between the three options
+- [ ] Both themes readable at 1280 and 375; nothing overflows in either
 
 ---
 
@@ -335,14 +356,77 @@ Phase 5 adds six DERIVED tokens beside them in `app/globals.css` — the pressed
 
 Phase 5 adds exactly one new motion: a 160 ms entrance (`--animate-rise`) for things that appear over the page — toast, menu, dialog — plus colour and shadow transitions on hover. It does not touch the two pre-existing looping animations, the `animate-spin` on a pending submit and the `animate-pulse` on skeleton bars. Every animation in the app, new and old, is suppressed under `prefers-reduced-motion: reduce`.
 
+### Dark palette (Block B US7)
+
+Dark mode is a **token swap and nothing else**: every colour in the app is already a
+`@theme` variable, so the dark theme redefines those variables and no component gains a
+`dark:` utility. The dark values are the same indigo, red and neutral ramp read from the
+other end — no new hue, the rule Phase 5 closed with — and twice literally, since the
+dark surface is the light palette's ink (`#1a1d23`) and the dark ink is the light
+palette's ground (`#f6f7f9`).
+
+```css
+  --dark-color-bg: #12141a;         --dark-color-accent: #a5b4fc;
+  --dark-color-surface: #1a1d23;    --dark-color-accent-soft: #23263f;
+  --dark-color-border: #2b303a;     --dark-color-accent-strong: #c7d2fe;
+  --dark-color-text: #f6f7f9;       --dark-color-danger: #f87171;
+  --dark-color-text-muted: #9aa3b2; --dark-color-danger-soft: #2a1719;
+  --dark-color-on-accent: #12141a;  --dark-color-danger-strong: #fca5a5;
+  /* plus the three shadows at real black, much higher alpha */
+```
+
+One COLOUR token is added to the light palette as well: `--color-on-accent` (`#ffffff`),
+the ink that sits on a filled accent or danger control. Six places wrote `text-white`
+directly on such a fill, and white is right on a dark indigo and wrong on a light one —
+so the literal had to become a token before the palette could invert. That closes six of
+the un-tokenized one-offs the Phase 5 gate parked. The seventeen alpha-of-token
+utilities (`border-text/15`, `text-text-muted/70`, `ring-danger/*`, `bg-surface/95`,
+`bg-bg/85` and the rest) stay inline and stay fine, because an alpha OF a token inverts
+with the token for free.
+> Decision (code-review gate, this branch): `--color-scrim` is the SECOND token dark mode
+> forced, and it is the exception that proves the sentence above. `ConfirmDialog`'s
+> backdrop was `bg-text/40` — an alpha of the ink — which is a scrim on a white page and a
+> 40% WHITE HAZE the moment the ink goes light, losing the elevation cue on the one
+> control in the app that must not lose it. A scrim always darkens what is behind it, in
+> both themes, so it cannot be an alpha of anything that inverts; it is now its own token
+> carrying its own opacity (`rgb(16 24 40 / 0.4)` light, `rgb(0 0 0 / 0.62)` dark). The
+> "inverts for free" rule holds for every alpha whose ROLE follows its neighbours — and a
+> scrim's does not.
+
+**Three states, one attribute.** `data-theme="dark"` and `data-theme="light"` are the
+explicit choices; NO attribute is `system`, and with nothing stamped the
+`prefers-color-scheme` block in `app/globals.css` decides. `:not([data-theme="light"])`
+on that block is what lets an explicit Light choice survive a dark OS.
+
+**No flash, and no inline script.** The preference is a COOKIE, read in
+`app/layout.tsx`, so the attribute goes out with the first byte and CSS resolves the
+palette before anything paints. Web storage cannot do this — the server cannot read it —
+which is why the usual `next-themes` shape needs a blocking script in `<head>`. It is
+also why the cookie is not a Supabase column: `/sign-in` must carry the control before
+there is a user to key a row to. Nothing about this reaches Postgres, so rule 8 is
+untouched. `color-scheme` is set alongside the tokens, or form controls, scrollbars and
+the caret stay light on a dark page.
+> Decision: the control is THREE-STATE, not a two-way toggle (owner decision at the
+> architect gate). A two-way toggle has to say which side it is on, and for a visitor
+> with no cookie the server cannot know — their OS preference never reaches the request.
+> It would either guess the icon and correct itself after hydration, or render nothing
+> decisive and be briefly inert. **System** is a truthful third answer, so the page and
+> the control are both right from the first byte.
+> Decision: rule 6 gained one sentence rather than an exception — a non-secret display
+> preference in a cookie is neither note nor session data. Written down rather than
+> assumed, so a later `/review-auth` does not have to re-derive it.
+> Decision: the toggle is on `/sign-in` and in `Header`, and therefore NOT on
+> `/notes/[id]`, which has no header. The editor's sticky row is specified in this block
+> and sanctions two controls; adding a third there is an owner call, not a silent one.
+
 ### Screen: `/sign-in`
-- Layout: centered card (max-w-sm) on `--color-bg`; app name "Notera Notes" above the card.
+- Layout: centered card (max-w-sm) on `--color-bg`; app name "Notera Notes" above the card; the theme control absolutely positioned in the top-right corner, so it does not push the card off the vertical middle.
 - Fields: email (`type=email`, autocomplete `username`), password (`type=password`, autocomplete `current-password`) with a show/hide toggle — an icon-only `type="button"` (lucide `Eye` / `EyeOff`) inside the field's right edge that switches the input between `password` and `text`, default hidden, `aria-label` from `lib/copy.ts` — and submit **Sign in** (full-width, accent).
 - States: **Loading** — button shows spinner + disabled while the action runs; **Empty** — n/a (a form is its own empty state; recorded decision); **Error** — inline text under the form, exact copy: "Email or password is incorrect." for bad credentials, "Something went wrong. Try again." for any other failure.
 - Actions: submit → Server Action `signIn` → success `redirect("/notes")` / failure shows the inline error, password field cleared.
 
 ### Screen: `/notes`
-- Layout: `Header` — sticky at the top of the viewport, on a 95%-opaque surface so the grid scrolls under it rather than behind a hard edge (app name and a decorative mark left; **New note** button and **Sign out** right); below it the workspace splits into `TagFilter` and a responsive card grid, **most recently updated first** — the same timestamp each card displays. **At `md` and up** `TagFilter` is a right-hand COLUMN 224 px wide (240 px from `lg`) beside the grid: an **All tags** button across the top of it, then one chip per distinct tag of the user's notes, alphabetical, wrapping down the column. It scrolls with the page — no sticky, no scroll area of its own. **Below `md`** there is no column: the same items are a wrapping cloud above the grid, **All tags** first, on as many lines as they need. The grid takes whatever width is left: 1 column at 375, 2 from `md`, 3 at 1280.
+- Layout: `Header` — sticky at the top of the viewport, on a 95%-opaque surface so the grid scrolls under it rather than behind a hard edge (app name and a decorative mark left; the theme control, then **New note** and **Sign out**, right); below it the workspace splits into `TagFilter` and a responsive card grid, **most recently updated first** — the same timestamp each card displays. **At `md` and up** `TagFilter` is a right-hand COLUMN 224 px wide (240 px from `lg`) beside the grid: an **All tags** button across the top of it, then one chip per distinct tag of the user's notes, alphabetical, wrapping down the column. It scrolls with the page — no sticky, no scroll area of its own. **Below `md`** there is no column: the same items are a wrapping cloud above the grid, **All tags** first, on as many lines as they need. The grid takes whatever width is left: 1 column at 375, 2 from `md`, 3 at 1280.
 > Decision (Phase 6, owner request): the first build made that row a single line with `overflow-x-auto`, which is unusable past about sixteen tags — the seventeenth is reachable only by a horizontal drag, on a page that has no other sideways motion, and there is no way to see how many tags you have. The replacement is a layout change ONLY: same `listTags()` data, same `?tag=` URL, same server-side `.contains` query. What changed is how much width the list is allowed, so it wraps after one chip in a column instead of scrolling off the side of a row.
 > Decision: **one DOM tree, not two.** The cloud and the sidebar are the same wrapping flex list under different width constraints; the only breakpoint-aware class inside `TagFilter` is `md:w-full` on the All tags item, which makes it take its whole line so the tags begin on the next one. The alternative — rendering the list twice behind `hidden`/`md:block` — would put two copies of every link in the accessibility tree and two `nav` landmarks with the same name. Placement (which side, how wide) is passed in by `/notes`, so the component decides nothing about where it sits.
 > Decision: the third grid column moves from `lg` to `xl`. Column count is measured against the width the sidebar LEAVES, not the viewport: at `lg` three cards beside a 240 px column are ~224 px each, and two are comfortable. 1280 still shows three, which is what this block promises.
@@ -361,6 +445,7 @@ Phase 5 adds exactly one new motion: a 160 ms entrance (`--animate-rise`) for th
 | ⋮ → **Edit** | Navigate `/notes/[id]` — the named form of clicking the card, because the whole-card link is convenient but silent | — |
 | ⋮ → **Delete** | `ConfirmDialog` (US4 copy) → the SAME `deleteNote` Server Action, therefore the same DAL and the same ownership filter → `revalidatePath` drops the card in place + toast "Note deleted." No second deletion path exists | Toast; the note stays. "This note no longer exists." if it was already gone (G-13) |
 | Click tag chip | Server re-fetch filtered by tag | Error state card |
+| Theme option | The attribute on `<html>` flips locally at once → Server Action writes (or clears) the cookie. No `revalidatePath`: the theme is in no cached payload, so revalidating would re-render the grid to produce identical markup | none — the choice holds for this document and is simply not remembered past a reload (G-30) |
 | Sign out | Server Action → `revalidatePath` + redirect `/sign-in` | none — the redirect happens regardless, because auth-js has already cleared the local session on every error path; the error is logged server-side, not shown |
 > Decision (Phase 4 gate, owner-approved): "none" covers the OFFLINE case too. When the action cannot run at all the session is still live, the user stays where they are, and nothing is shown — the failure is logged for the developer only (CLAUDE.md rule 13 is satisfied by the log, not by a message, because there is nothing the user could act on that the button does not already offer). A visible "couldn't sign out" notice is a post-sprint candidate; it would change this row, so it is not a silent improvement anyone should make in passing.
 
@@ -382,6 +467,7 @@ Phase 5 adds exactly one new motion: a 160 ms entrance (`--animate-rise`) for th
 | MoreMenu | **new in Phase 4** | Icon-only `⋮` trigger + `role="menu"` list. `aria-haspopup`/`aria-expanded`/`aria-controls`; opening focuses the first item; Escape closes and returns focus to the trigger; arrow keys move and wrap; an outside `pointerdown` closes without stealing focus back; focus leaving the menu closes it too (added Phase 5, from the Phase 4 fresh-session review — Tab off the last item used to walk out of the card with the menu still painted). Presentational — it takes a label and items and never knows what they do. **Recorded because the phase brief described it as carried over from Notera: it was not.** No `MoreMenu` existed in this repo, in any commit on any branch, or in this table (BUILD_PHASES names a Notera `InlineRename`, also never ported), so none of the behaviour above is inherited — it is new code, written and verified in Phase 4. |
 | TagEditor | Notera `LabelEditor` descendant | Enter commits, × removes, cap per `LIMITS.tagsPerNote` |
 | NoteCard, NoteCardMenu, Skeletons, SignInForm, NoteEditor, ErrorCard, NewNoteButton | new | per specs above |
+| ThemeToggle | new (US7) | A three-option radio GROUP, not three buttons: one `<fieldset>` of native radios gets exclusivity, arrow-key movement with wrap, a single tab stop and the "1 of 3" announcement from the platform — the work `MoreMenu` had to hand-roll only because no element does menus. Icon-only with `sr-only` labels and a `title`; the group's name is `sr-only` too, because a fourth visible word does not fit beside two labelled controls at 375. Placement is the caller's (`className`), arrangement is its own — the `TagFilter` split. Exports `ThemeTogglePlaceholder`, an inert same-size box for `app/notes/loading.tsx`: that header renders inside a Suspense FALLBACK, a fallback may not suspend, so nothing in that tree can await the cookie. Guessing a state would show something false; rendering nothing would let the header jump. |
 | TagFilter | new | Links, never buttons — the filter is a URL (`?tag=`), so it survives a reload, can be shared, and steps through Back. A Server Component with no state: following a chip re-renders on the server and re-queries Postgres, which is what US5's second acceptance box asks for. The boundary is split, not absolute: the component owns its INTERNAL arrangement at each breakpoint (`md:w-full` on the All tags item is what turns the cloud into the sidebar's stacked button), and `/notes` owns the EXTERNAL placement — which side, how wide, what gap — passed in as `className`. A caller wanting the cloud arrangement at desktop width cannot get it from `className` alone; one caller exists, so no `orientation` prop was invented for a second that does not. |
 
 ---
@@ -476,6 +562,11 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 27. `created_at` rendered in the user's local timezone via `toLocaleDateString` — dates may differ from UTC dashboard values by design (recorded decision).
 28. System clock skew between client and server → all timestamps come from Postgres `now()`, never from the browser.
 
+**Theme**
+29. Visitor with no theme cookie, OS set to dark → served no `data-theme`, and CSS resolves dark. Nothing is guessed and nothing is corrected after load; the control reads **System**, which is exactly what is stored.
+30. Theme clicked while offline → the page changes immediately and the cookie write fails. Nothing is shown and the change is NOT rolled back: the user has the theme for as long as this document lives, and only the memory of it is lost. Logged at `warn` for the developer. Reverting would turn a lost preference into a visible malfunction, and a toast would spend rule B8's single-notice queue — the one unsaved TEXT needs — on a colour scheme. Same position as the Sign out row in Block E's actions table. **Two consequences, both accepted:** re-picking the SAME option is not a retry — a radio fires no `change` event when it is already checked, so the only way to attempt the write again is to pick another option and come back; and the next server render re-seeds the control from the cookie, so a navigation restores the stored theme rather than leaving a control that disagrees with its own page (the fix for a desync found at the code-review gate).
+31. Forged `notera-theme` cookie, or a forged POST to the theme action → any value that is not one of the three known words is read as `system`, and the action refuses to write it. The endpoint is anonymous-reachable by design (`/sign-in` needs it before there is a user) and safe because its whole authority is "set one cookie on the caller's own browser to one of three words" — it touches no Supabase client, no `getUser()` and no DAL, and must never gain a branch that does.
+
 ---
 
 ## BLOCK H: Definition of Done
@@ -490,6 +581,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
    Everything else is **excluded by name**, because prose about a thing is not a use of it: `.agents/skills/` (vendor skill docs), `docs/` (the Context7 material, which quotes Supabase's own warnings), `.next/` and `node_modules/` (build output and dependencies), `.claude/` (see below), `SPEC.md` (it quotes both greps — including on this line), and `WORKLOG.md`, which is excluded for a second and stronger reason: rule 19 makes it off-limits, so a project check must never print it. Running the old, unscoped version of this check did.
    The known prose hits, enumerated so a future run can tell "unchanged" from "new" — and counted for a FRESH CLONE, not for one particular working tree: **four** vendor skill-doc files and **two** lines of SPEC.md (Block G edge case 25, and this check). The four are `supabase/SKILL.md` and `supabase-postgres-best-practices/references/security-rls-performance.md`, each appearing TWICE — once under `.agents/skills/` and once under `.claude/skills/`. Both copies are tracked deliberately: the rubric grades the official Supabase Agent Skills being installed in the repo, and removing either could break skill discovery on a fresh clone. `WORKLOG.md` holds two more, which this check must never print (rule 19). Anything else is a finding.
    **A trap worth knowing before you re-run this by hand:** on a working tree where `.claude/skills/*` are symlinks into `.agents/skills/*`, `grep -r` does NOT follow them and reports two hits instead of four. Use `grep -R`, or trust `npm run check`, which never walks either tree. This is exactly how the first version of this list came to be short by two.
+5b. Dark mode holds at both widths and in all three states: with the cookie absent (OS decides), set to `light` on a dark OS, and set to `dark` on a light OS — checked on `/sign-in` and `/notes`, with no flash on first paint in any of them. `npm run check`'s web-storage check covers the other half of the claim: the preference is a cookie, and no shipping file so much as names a web-storage API — comments in `lib/theme.ts` and `app/layout.tsx` say "web storage" for exactly that reason, rather than growing the known-hits list for prose.
 6. `grep -rn "getSession()" app/ lib/ proxy.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
 7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`).
 8. README documents: purpose, run steps, both env vars and where to find their values (Supabase dashboard → Settings → API), a screenshot of the local app, and the optional tasks with their branch/PR names.

@@ -11,6 +11,7 @@ import { copy } from "@/lib/copy";
 import { normalizeTag } from "@/lib/validation";
 import { isNotesError, listNotes, listTags } from "@/lib/notes";
 import { ROUTES } from "@/lib/routes";
+import { getThemePreference } from "@/lib/theme.server";
 import type { NoteView } from "@/lib/types";
 
 /**
@@ -43,6 +44,11 @@ export default async function NotesPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const params = await searchParams;
+
+  // Read here rather than inside `Header`, because `app/notes/loading.tsx` renders
+  // that header inside a Suspense fallback and a fallback may not await anything.
+  // See the `theme` prop on HeaderProps.
+  const theme = await getThemePreference();
 
   // `?tag=a&tag=b` is a legal URL, so the value arrives as `string | string[]`. One
   // filter is what the screen models, so the first entry wins rather than the request
@@ -100,6 +106,7 @@ export default async function NotesPage({
   return (
     <>
       <Header
+        theme={theme}
         actions={
           <>
             <NewNoteButton />

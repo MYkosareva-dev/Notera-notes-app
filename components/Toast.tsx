@@ -305,7 +305,7 @@ export function Toaster() {
             <button
               type="button"
               onClick={toast.action.onClick}
-              className="shrink-0 rounded-control bg-accent px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="shrink-0 rounded-control bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {toast.action.label}
             </button>

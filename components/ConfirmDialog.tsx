@@ -33,7 +33,7 @@ interface ConfirmDialogProps {
  * on specificity. The two halves must always move together.
  */
 const DIALOG_CLASS =
-  "hidden open:flex fixed inset-0 m-0 h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-text/40 backdrop:backdrop-blur-[2px]";
+  "hidden open:flex fixed inset-0 m-0 h-full max-h-none w-full max-w-none items-center justify-center bg-transparent p-4 backdrop:bg-scrim backdrop:backdrop-blur-[2px]";
 
 /**
  * Destructive-action confirmation. Presentational only: every string and both
@@ -110,7 +110,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-control bg-danger px-4 py-2 text-sm font-medium text-white shadow-card transition-colors hover:bg-danger-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
+            className="rounded-control bg-danger px-4 py-2 text-sm font-medium text-on-accent shadow-card transition-colors hover:bg-danger-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-60"
           >
             {confirmLabel}
           </button>

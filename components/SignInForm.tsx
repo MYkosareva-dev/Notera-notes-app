@@ -185,7 +185,7 @@ export function SignInForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="mt-1 flex w-full items-center justify-center gap-2 rounded-control bg-accent px-4 py-2.5 text-sm font-medium text-white shadow-card transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
+        className="mt-1 flex w-full items-center justify-center gap-2 rounded-control bg-accent px-4 py-2.5 text-sm font-medium text-on-accent shadow-card transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-70"
       >
         {isPending ? (
           <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
