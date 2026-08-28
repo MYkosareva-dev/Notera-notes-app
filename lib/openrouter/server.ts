@@ -47,13 +47,37 @@ const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const TIMEOUT_MS = 30_000;
 
 /**
- * The default model: verified present in `GET /api/v1/models` at the time of writing, with
- * THREE healthy provider endpoints (OpenAI plus two Azure regions).
+ * The default model: resolved against `GET /api/v1/models` by exact `id`, with EIGHT
+ * healthy provider endpoints spread across FOUR independent organisations — Anthropic,
+ * Google, Azure and Amazon Bedrock (8/8 up at the time of writing).
  *
  * That last part is the actual reason, and it is why this is not simply "the cheapest
  * model". OpenRouter's value is routing, so a default with one provider behind it is a
- * default that goes down when that provider does; this one survives losing two. 128k
- * context and $0.15/$0.60 per million tokens are the secondary arguments.
+ * default that goes down when that provider does; losing any one organisation here still
+ * leaves three. 200k context is the secondary argument. $1.00/$5.00 per million tokens is
+ * a cost, not an argument — see below.
+ *
+ * CHOSEN OVER `google/gemini-2.5-flash`, which was the other candidate on the owner's plan
+ * and is cheaper ($0.30/$2.50) with a far larger context (1M). It was rejected on the
+ * criterion in the paragraph above: its seven endpoints are all Google or Google AI Studio,
+ * so it is one organisation wide and is exactly the shape this rule exists to refuse — and
+ * one of the seven already reported a non-zero status when it was checked. A cheaper model
+ * behind a single provider is not a cheaper default; it is a default with a single point of
+ * failure, priced lower.
+ *
+ * THE PRICE IS REAL AND WORTH KNOWING: about 6.7x the previous default on input and 8.3x on
+ * output (`openai/gpt-4o-mini`, $0.15/$0.60, which had three endpoints across two
+ * organisations). Irrelevant at this project's usage — a chat message is a few hundred
+ * tokens against a $15 cap — and stated so nobody has to rediscover it from a bill.
+ *
+ * ONE THING THIS CHANGE BROKE ELSEWHERE, recorded because it is not visible from this file:
+ * `LIMITS.chatReplyMax` (100,000 characters, and a `CHECK` constraint on
+ * `chat_messages.content`) was justified as sitting above anything the default model could
+ * physically emit. That was arithmetic from gpt-4o-mini's 16,384 max output tokens. This
+ * model's is 64,000 — roughly 256,000 characters — so the bound is no longer unreachable.
+ * It was left as it is on purpose: an over-long reply is SHOWN and reported unsaved, which
+ * is the path that already exists for a failed write. `lib/types.ts` carries the corrected
+ * reasoning.
  *
  * Model IDs are not stable forever — `anthropic/claude-3.5-sonnet` was a valid ID within
  * this file's lifetime and is now absent from the list. Per the official
@@ -61,7 +85,7 @@ const TIMEOUT_MS = 30_000;
  * `id`, then check `GET /api/v1/models/{author}/{slug}/endpoints` for provider status,
  * before changing this line. `npm run verify:openrouter` does both.
  */
-export const DEFAULT_MODEL = "openai/gpt-4o-mini";
+export const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
 
 export type ChatRole = "system" | "user" | "assistant";
 

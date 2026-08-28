@@ -186,12 +186,41 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 > `openrouter-typescript-sdk` skill recommends `@openrouter/agent`, which is genuinely better
 > for agent loops with tool calling; CLAUDE.md forbids new packages without approval, and one
 > non-streaming call does not need one. **(2) The key is a secret, so the fences are inverted**
-> from the Supabase ones — see Block F. **(3) `DEFAULT_MODEL` is `openai/gpt-4o-mini`**, chosen
-> for THREE healthy provider endpoints rather than for being cheapest: OpenRouter's value is
-> routing, so a default behind one provider is a default that goes down with it. Model ids are
-> not stable (`anthropic/claude-3.5-sonnet` was valid within this sprint and is now absent from
-> the list), so `npm run verify:openrouter` re-resolves the id and checks provider health on
-> every run, per the `openrouter-models` skill's own procedure.
+> from the Supabase ones — see Block F. **(3) `DEFAULT_MODEL` is
+> `anthropic/claude-haiku-4.5`** (it was `openai/gpt-4o-mini` until the lab's Part 4 —
+> see the amendment below), chosen for PROVIDER REDUNDANCY rather than for being cheapest:
+> OpenRouter's value is routing, so a default behind one provider is a default that goes
+> down with it. Model ids are not stable (`anthropic/claude-3.5-sonnet` was valid within
+> this sprint and is now absent from the list), so `npm run verify:openrouter` re-resolves
+> the id and checks provider health on every run, per the `openrouter-models` skill's own
+> procedure.
+>
+> **Amendment — 2026-08-28, owner override, lab Part 4: the default model moves to another
+> provider.** `openai/gpt-4o-mini` → `anthropic/claude-haiku-4.5`. The display name was
+> resolved to its slug against the live `GET /api/v1/models` rather than typed from memory,
+> which mattered: the list also carries `~anthropic/claude-haiku-latest` (a floating alias)
+> and a `:batch` variant beside the id that was wanted.
+>
+> **`google/gemini-2.5-flash` was the other candidate and was rejected on this project's own
+> criterion.** It is cheaper ($0.30/$2.50 per million tokens against $1.00/$5.00) with a far
+> larger context (1M against 200k), and all seven of its endpoints are Google or Google AI
+> Studio — ONE organisation, which is precisely the single-point-of-failure shape constraint
+> (3) exists to refuse; one of the seven also reported a non-zero status when checked. The
+> chosen model has EIGHT healthy endpoints across FOUR independent organisations (Anthropic,
+> Google, Azure, Amazon Bedrock), so losing any one of them still leaves three. Verified 8/8
+> up by `npm run verify:openrouter`, which also confirmed the id routes and a real completion
+> comes back.
+>
+> **The cost is real and is recorded rather than buried:** about 6.7x the old price on input
+> and 8.3x on output. Irrelevant at this project's usage — a chat message is a few hundred
+> tokens against a $15 cap, with $0.0007 spent at the time of the change — but it is a
+> deliberate trade of money for redundancy, not a free upgrade.
+>
+> **One consequence outside this block, because it is not visible from here:** the reasoning
+> behind `LIMITS.chatReplyMax` was arithmetic from the OLD model's 16,384 max output tokens.
+> This model's is 64,000, so the 100,000-character bound is no longer above what the default
+> can emit. The cap is deliberately NOT raised — see the Block C decision on the content
+> bounds, which now records the honest position.
 >
 > **Amendment — 2026-08-24, owner override, branch `lab/agents`.** `dark mode` moved OUT → IN
 > for a lab exercise on subagent workflows. This is the only item ever moved off the OUT list;
