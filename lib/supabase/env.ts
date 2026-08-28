@@ -6,6 +6,14 @@
 // referenced anywhere in this repo (CLAUDE.md rule 4); the publishable key is all
 // an RLS-protected app needs.
 //
+// This file used to say these were the ONLY env vars, full stop. The 2026-08-28 amendment
+// (SPEC M15) added a third, `OPENROUTER_API_KEY`, and it is validated in
+// lib/openrouter/env.ts rather than here — deliberately, not for want of a home. That one
+// is a SECRET, so its guard refuses EXPOSURE; these two are public by design, so their
+// guard refuses a PRIVILEGED VALUE. One shared `required()` would mean a single function
+// with two opposite definitions of a bad value, which is how the wrong one eventually gets
+// applied to the wrong variable.
+//
 // Read here rather than in each of the three clients so the names exist once
 // (CLAUDE.md rule 11) and a missing value fails with a message that says what to
 // do, instead of supabase-js throwing "Invalid URL" three files away.

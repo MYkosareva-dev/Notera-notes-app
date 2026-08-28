@@ -20,6 +20,20 @@ npm run dev     # http://localhost:3000
 ```
 Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
 
+## Secrets
+
+- Secrets live in `.env.local` only. It is gitignored and never committed.
+- Server-side use only: any module reading a secret imports `server-only`.
+  No secret is ever prefixed `NEXT_PUBLIC_`.
+- **Never print a secret's value.** Do not `cat`, `grep`, `head`, `echo` or
+  otherwise read the contents of `.env*` files, and never include a secret
+  value in tool output, logs, error messages, commit messages or a summary
+  to me — not even truncated or partially masked.
+- To inspect secrets, read variable NAMES only:
+  `grep -o '^[A-Z_]*' .env.local`
+- Any recursive search over the repo excludes `.env*` explicitly:
+  `grep -r --exclude='.env*' ...`
+
 ## Authentication rules
 1. **Supabase Auth handles all sign-in and session handling.** No custom password
    handling of any kind: no hashing, no comparison, no homemade tokens.
@@ -116,3 +130,49 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
     into any form. Any verification that requires a real sign-in belongs to the
     owner. If a task seems to require credentials, stop and ask — the answer
     will be a redesign of the task, not the credentials.
+21. **The `## Secrets` rules at the top of this file are absolute — and this is the
+    incident that put them there.** That section states the mechanics (never read
+    `.env*` contents; names only; `--exclude='.env*'` on every recursive search).
+    This rule exists so the REASON survives, because the rule was broken by an agent
+    that already knew it.
+
+    On 2026-08-28, asked to confirm where `OPENROUTER_API_KEY` was read, the agent
+    ran `grep -rn "OPENROUTER_API_KEY" .` — `node_modules`, `.next` and `.git`
+    excluded, **`.env*` not** — and printed the live key in full. Note what did NOT
+    prevent it: the task itself was a security audit, the agent had just written the
+    scanner that documents this exact hazard, and two other greps in the same session
+    were correctly scoped. **Care is not a control.** The exclusion goes on the
+    command every time, including the throwaway one-off, including when the search
+    term is a variable name and not a value — because a name search matches the
+    assignment line, and the assignment line contains the secret.
+
+    Two techniques that answer the usual questions without printing anything:
+    - To prove a key WORKS, report a property, not the value — `npm run
+      verify:openrouter` prints the key's length and never the key.
+    - To prove a key is ABSENT from a build artifact, grep for the value and report
+      only a COUNT of matching files, never a matching line.
+
+    `scripts/check.mjs` already encodes the same rule and states its reasoning: it
+    scans `.env.example` by name but deliberately excludes `.env.local` and every
+    `.env*` glob, "because printing a finding out of a real secrets file would leak
+    the secret."
+
+    If a secret does reach the transcript, it is an incident and not a slip: say so
+    plainly in the same reply, and escalate to **whoever controls the key**.
+
+    **That is not always "rotate it", and in this project it is not.**
+    `OPENROUTER_API_KEY` is **school-issued and centrally managed** — the owner cannot
+    regenerate it, so telling her to rotate is advice she cannot act on. The correct
+    remediation here is **report it to the key's owner for reissue**, which was done on
+    2026-08-28; the key is capped at $15 with ~$0.00 spent, and the transcript never
+    left the owner's machine. A future session must not keep repeating "rotate it".
+
+    The general rule this is an instance of: **name the containment action the person
+    in front of you can actually take.** Establish who controls a credential before
+    prescribing a fix for it — for a managed or issued key that means reporting and
+    requesting reissue, plus the spend cap and blast radius, not a rotation the owner
+    has no authority to perform.
+
+## AI model calls
+- All model calls must happen server-side only. Never call the OpenRouter API from browser code.
+- OPENROUTER_API_KEY lives in .env.local and must never be exposed to the browser (no NEXT_PUBLIC_ prefix, no passing it to client components).
