@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { ROUTES, isWorkspacePath } from "@/lib/routes";
+import { ROUTES, isProtectedPath } from "@/lib/routes";
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./env";
 
@@ -87,7 +87,7 @@ export async function updateSession(request: NextRequest) {
   // DAL refuses without a user and the action returns a structured error.
   const isNavigation = request.method === "GET";
 
-  if (isNavigation && !user && isWorkspacePath(pathname)) {
+  if (isNavigation && !user && isProtectedPath(pathname)) {
     return redirectTo(ROUTES.signIn, request, supabaseResponse, refreshHeaders);
   }
 

@@ -5,6 +5,10 @@ own notes; every account sees only its own rows, and the session is verified on 
 server before a protected page renders. Unauthenticated visitors can reach nothing but
 the sign-in page.
 
+It also has a **chat page** (`/chat`): a conversation with an AI assistant that remembers
+what you said earlier, and picks the conversation back up when you return. The API key
+stays on the server.
+
 ![Notes workspace](docs/screenshots/notes.png)
 
 Runs locally only — this sprint has no build or deploy target.
@@ -109,19 +113,24 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
    and a real completion comes back. It costs a fraction of a cent (one ~32-token
    reply) and **never prints the key** — it reports the key's length and nothing more.
 
-   The connection is deliberately **unwired**: nothing in the app calls a model yet.
-   `lib/openrouter/server.ts` exports `DEFAULT_MODEL` and one `chat()` function, and
-   that is the whole of it. See the 2026-08-28 amendment in [`SPEC.md`](SPEC.md) (M15)
-   for why, and for what a future feature would owe.
+   The key is what `/chat` runs on. `lib/openrouter/server.ts` is the connection — one
+   `chat()` function over `fetch`, no dependency — and `lib/chat.ts` is the gate in
+   front of it: it calls `getUser()` before any model call, so nothing is spent for a
+   caller without a session. Both amendments of 2026-08-28 are in [`SPEC.md`](SPEC.md)
+   (M15, and Block B US8 for the page itself).
 
-4. **Create the table.** Open **SQL Editor** in the dashboard, paste
+4. **Create the tables.** Open **SQL Editor** in the dashboard, paste
    [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates `public.notes`,
    enables row-level security with one owner-only policy per verb — each restricted to
    the `authenticated` role — takes back the DML grants Supabase hands `anon` on every
    new public table, adds the index the list ordering walks plus a GIN index for the tag
-   filter, and installs the invoker-rights trigger that touches `updated_at`.
+   filter, and installs the invoker-rights trigger that touches `updated_at`. It also
+   creates `public.chat_messages`, which stores chat history: same owner-only RLS and same
+   `anon` revoke, but **SELECT and INSERT policies only** — with no UPDATE or DELETE
+   policy the table is append-only at the database, which is the whole design and not an
+   omission.
 
-   That one file is all you run. The two migration files beside it,
+   That one file is all you run on a fresh project. The migration files beside it,
    [`phase7-amendments.sql`](supabase/phase7-amendments.sql) and
    [`security-amendments.sql`](supabase/security-amendments.sql), are the record of what
    brought an already-provisioned database to this shape, and each ends with the queries
@@ -129,6 +138,15 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
    'public.notes'::regclass;`, which is the only one of them that can tell an **enforced**
    fence from a decorative one. Policies keep existing on a table whose row-level security
    has been switched off; they just stop being applied.
+
+   On an already-provisioned database, `chat_messages` arrived later than the rest:
+   [`chat-amendment.sql`](supabase/chat-amendment.sql) is that migration, run on
+   2026-08-28, and it ends with the queries that verify it. Nothing to do on a fresh
+   project — `schema.sql` above already contains the table.
+
+   If you ever see `/chat` showing "Couldn't load this conversation." with a **Try again**
+   button instead of a transcript, that is this table missing, not a bug in the page: the
+   read fails with `42P01` and the server log names the file to run.
 
 5. **Create the test accounts.** There is no sign-up screen — by design (the assignment
    asks for dashboard-created accounts). In the dashboard go to
@@ -192,8 +210,35 @@ nothing here re-verifies the live database. Also `npm run typecheck` (`tsc --noE
   `<head>`. The control has three states, and **System** is the default: with no
   attribute stamped, `prefers-color-scheme` in CSS decides. It works on `/sign-in`,
   before any account exists, which is also why the preference is not a database column.
+- **The chat page is fenced like the workspace, for a different reason.** `/chat` has its
+  own three fences: `lib/chat.ts` calls `getUser()` before it validates anything and
+  before it calls a model, `app/chat/layout.tsx` redirects, and `proxy.ts` takes the cheap
+  early redirect. On `/notes` fence 1 keeps rows off the wire; here the page has no data
+  to leak, so what fence 1 protects is the **spend** — an anonymous POST to the send
+  action costs nothing. Both `lib/chat.ts` and both modules under `lib/openrouter/` import
+  `server-only`, so the build fails if a Client Component pulls any of them in, which is
+  what keeps `OPENROUTER_API_KEY` on the server.
+- **The conversation is remembered in two different senses, and they are separate
+  mechanisms.** *Within* a conversation, the transcript lives in React state on the page
+  and is posted whole with every message, so a follow-up like "tell me more about that"
+  resolves against what was actually said. *Across* reloads, the turns are stored in
+  Supabase (`chat_messages`) and `/chat` loads the newest conversation on render. The
+  second is a layer under the first, not a change to it: storage seeds the page's state
+  once and is never consulted again, so the prompt is still built from the client's array.
+- **Chat history is append-only at the database.** The table has SELECT and INSERT
+  policies and no UPDATE or DELETE policy, so RLS denies both — nothing in the app can
+  edit or remove a turn, and **New chat** deletes nothing: the old conversation stays
+  where it is and stops being the most recent one. Both rows of an exchange are written
+  together, and only after the model has answered, which is what keeps **Retry** from
+  storing a duplicate question.
+- **The caps on a chat request are what make a client-held transcript safe.** 2,000
+  characters per message you type, 40 messages of history per request, and 80,000
+  characters total across that history — the last one being the real spend control, since
+  forty long replies is an unbounded prompt. A `role: "system"` turn is refused outright,
+  so the app's own instructions to the model cannot be replaced from the wire. SPEC US8
+  records the whole trade.
 - **Limits** all come from `LIMITS` in `lib/types.ts` — 200 characters per title,
-  50,000 per note, 24 per tag, 10 tags per note, 1,000 notes per account. Three of them
+  50,000 per note, 24 per tag, 10 tags per note, 1,000 notes per account, and for chat 2,000 characters per message, 40 messages and 80,000 characters of history per request, and 200 turns loaded per conversation. Three of them
   have a matching `check` constraint in the database (title length, content length, tag
   count). The per-tag length and the notes-per-account cap are enforced in the DAL
   only — a database fence for those two was considered and **declined**, because both
@@ -276,6 +321,22 @@ appendices — a data-model walkthrough and the second optional task.
   an omission.
 - **A theme change made offline is not remembered.** It applies at once and holds until
   you reload; the cookie write is what fails, and nothing is shown (SPEC G-30).
+- **A chat message whose send FAILED is not saved.** Nothing is written until the model
+  has answered, which is what keeps **Retry** from storing a duplicate question — so a
+  failed message is on screen with its notice until you retry, and a reload before that
+  loses it. The same bargain the note editor makes while a save is suspended (SPEC G-42).
+- **Chat memory is capped per request, and the screen is capped too.** 40 messages of
+  history and 80,000 characters go to the model; past that the oldest turns stop being
+  sent, so a very long conversation loses its beginning while the stored transcript stays
+  complete. `/chat` loads the newest 200 turns of a conversation. Nothing is shown in
+  either case: the caps bound what one request costs and what one render loads, and
+  neither is something the reader can act on (SPEC G-40, G-45).
+- **There is one conversation at a time, and no list of them.** `/chat` resumes the most
+  recent one; **New chat** starts another. There is no conversation picker, no titles and
+  no way to go back to an older conversation from the UI — the rows are still there, and
+  a list is a feature nobody asked for. One consequence: pressing **New chat** and
+  reloading without typing brings the previous conversation back, because an empty
+  conversation has no rows and therefore nothing to resume (SPEC G-44).
 - **Two of the five caps are app-enforced only.** A row written by hand in the SQL
   Editor can carry a tag longer than 24 characters, or push an account past 1,000
   notes; nothing written through the app can. A deliberate trade — see SPEC Block C.

@@ -163,6 +163,100 @@ export const copy = {
     },
   },
 
+  // The chat screen (SPEC US8). Every string the page can show is here, including
+  // the six failure messages — the Server Action returns a `ChatSendFailure` code and
+  // never a sentence, so this object is the only place a chat failure becomes English
+  // (rule 10, the same split `NoteFailure` uses).
+  chat: {
+    title: "Chat",
+    // Header link labels. Two directions, two strings: the notes list links across to
+    // the chat and the chat links back. Neither reuses `common.allNotes` — that arrow
+    // is the editor's back link and means "up to the list", not "across to a sibling".
+    navToChat: "Chat",
+    navToNotes: "Notes",
+
+    // The empty conversation.
+    //
+    // The description was REWRITTEN by the persistence amendment, and the old wording is
+    // why this comment exists. It used to end "Nothing is saved — reloading the page
+    // starts over", which was the honest thing to say when nothing was stored and is now
+    // exactly the kind of sentence rule 18 exists to catch: copy that promises the old
+    // behaviour after the code changed. A screen that still said it would be lying to the
+    // user, not merely out of date.
+    empty: {
+      title: "Ask the assistant anything.",
+      description:
+        "It remembers what you say in this conversation, and picks the conversation back up when you return.",
+    },
+
+    // The New chat control (SPEC US8). "New chat" rather than "Clear": nothing is
+    // deleted — the old conversation stays exactly where it is and simply stops being
+    // the most recent one. A label promising removal would describe a capability this
+    // app deliberately does not have (the table has no DELETE policy).
+    newChat: "New chat",
+
+    // The transcript could not be read (SPEC US8). Paired with common.tryAgain by
+    // ErrorCard, the same pairing /notes uses for its own load failure.
+    //
+    // It says "this conversation" rather than "your chat history", because the read
+    // fetches ONE conversation and the user should not be told that everything is gone
+    // when one screen failed to load. It is also what a developer sees before
+    // supabase/chat-amendment.sql has been run.
+    loadError: "Couldn't load this conversation.",
+
+    // The reply arrived but the write failed — a successful send whose storage did not
+    // land. Both halves have to be said: the answer is real (they can read it, and it
+    // was paid for) and it will not be there tomorrow. Naming the reload is what makes
+    // it actionable — copy the text out if it matters.
+    notSaved:
+      "The reply came through, but this exchange wasn't saved. It won't be here after a reload.",
+
+    // Who said what. Rendered as a small label above each bubble, so the attribution
+    // survives for a screen reader and for anyone who cannot use the left/right
+    // placement alone (SPEC US8 acceptance boxes).
+    you: "You",
+    assistant: "Assistant",
+
+    // The composer. The textarea has no visible label, and a placeholder is not a
+    // label — `inputLabel` is its accessible name (the same rule the editor's two
+    // borderless fields follow).
+    inputLabel: "Message",
+    inputPlaceholder: "Send a message…",
+    send: "Send",
+    // The pending state. One string, used both by the visible row and by the live
+    // region that announces it.
+    thinking: "Thinking…",
+    // Keyboard affordance, shown under the composer. Written out rather than left to
+    // be discovered: Enter-sends is a choice, and Shift + Enter is not guessable.
+    hint: "Enter sends · Shift + Enter for a new line",
+    // The scrollable transcript's accessible name. It is a live region, so it needs
+    // one — a screen reader otherwise announces arriving text with no idea what list
+    // it belongs to.
+    logLabel: "Conversation",
+
+    // Failure copy, one string per `ChatSendFailure` case. `retry` is the action on
+    // the retryable ones — the same affordance as rule B8's "Retry now", with its own
+    // word because there is nothing suspended to resume here, only one send to repeat.
+    retry: "Retry",
+    failed: {
+      // Retryable, and the copy says so.
+      unavailable: "Couldn't reach the assistant. Try again.",
+      timeout: "The assistant took too long to answer. Try again.",
+      rateLimited: "Too many messages. Wait a moment and try again.",
+      // NOT retryable, and the copy must not suggest it is. It names the person who
+      // can actually fix it — the app's owner, not the reader — which is the general
+      // rule CLAUDE.md rule 21 states for containment actions.
+      misconfigured:
+        "The assistant isn't configured correctly. This one needs the app's owner.",
+      // A message the server refused. Reachable from the UI only by pasting past the
+      // cap, so the actionable half is the length.
+      invalid: "That message couldn't be sent. Check its length and try again.",
+    },
+    // A session that died between opening this page and sending (SPEC G-1's shape, one
+    // screen over) reuses `notes.save.sessionExpired` and `notes.save.signIn` rather
+    // than restating them here (rule 11).
+  },
+
   // Cap and validation messages, SPEC Block F. Kept here from the start so no
   // number ever gets typed into a string later on.
   limits: {
@@ -172,5 +266,6 @@ export const copy = {
     tagDuplicate: "This tag is already on the note.",
     tooManyTags: `A note can have up to ${formatNumber(LIMITS.tagsPerNote)} tags.`,
     tooManyNotes: `You've reached the limit of ${formatNumber(LIMITS.notesPerUser)} notes.`,
+    chatMessageTooLong: `A message is limited to ${formatNumber(LIMITS.chatMessageMax)} characters.`,
   },
 } as const;

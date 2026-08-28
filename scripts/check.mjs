@@ -140,8 +140,24 @@ const OPENROUTER_KEY_LITERAL = new RegExp("sk" + "-or-", "i");
 // Any quoting of the table name, and any whitespace. This matched `"notes"` only until
 // the /full-review: `.from('notes')` slipped straight past it, and nothing in this repo
 // pins quote style — there is no ESLint and no Prettier config.
-const NOTES_FROM_SRC = '\\.from\\(\\s*["\'`]notes["\'`]\\s*\\)';
-const NOTES_FROM = new RegExp(NOTES_FROM_SRC);
+const tableFromSrc = (table) => '\\.from\\(\\s*["\'`]' + table + '["\'`]\\s*\\)';
+
+// EVERY TABLE AND ITS ONE DAL. Both checks below are driven by this list rather than by a
+// hardcoded `lib/notes.ts`, and that is the whole reason it exists: the chat persistence
+// amendment added a SECOND table, and a chokepoint check that knew about only the first
+// would have reported PASS while the new table was reachable from anywhere in the app.
+// The rule is one door per table (CLAUDE.md rule 3b), so adding a table means adding a
+// line here — and forgetting to is a FAIL rather than a silent gap, because `.from(`
+// anything, in any file that is not a listed DAL, is already a finding.
+//
+// Adding a row weakens nothing. Each DAL is still required to carry the ownership filter
+// on every one of its own query chains, still checked statement by statement, and still
+// required to contain at least one query at all.
+const DALS = [
+  { dal: "lib/notes.ts", table: "notes" },
+  { dal: "lib/chatMessages.ts", table: "chat_messages" },
+];
+const DAL_FILES = DALS.map((entry) => entry.dal);
 // Outside the DAL, ANY table access is a finding — including one whose argument is not a
 // literal (`.from(table)`), which cannot be cleared by reading text. `Array.from`,
 // `Buffer.from` and `Object.from` are the standard-library uses that would otherwise
@@ -253,10 +269,10 @@ check(
 
 // ── rule 3b: one chokepoint for notes data ────────────────────────────────────
 check(
-  "every notes query lives in the DAL",
-  "rule 3b — no page, component or Server Action touches the notes table directly",
+  "every table query lives in its DAL",
+  "rule 3b — no page, component or Server Action touches a table directly",
   () => {
-    const outside = CODE.filter((p) => p !== "lib/notes.ts");
+    const outside = CODE.filter((p) => !DAL_FILES.includes(p));
     return [
       ...hits(outside, OPAQUE_FROM, { stripComments: true }),
       // `.rpc()` is the other entry point into the same table — lib/notes.ts names it as
@@ -268,40 +284,46 @@ check(
 
 // ── rule 7, mechanically: each query chain carries the ownership filter ────────
 check(
-  "every notes query filters by user_id",
+  "every table query filters by user_id",
   "rule 7 — the explicit filter is mandatory even with RLS enabled",
   () => {
-    const src = blankComments(read("lib/notes.ts"));
     const bad = [];
-    let seen = 0;
-    // Scoped to the STATEMENT, not to a window of lines. A fixed window is fooled by the
-    // next query's filter when two chains sit close together — a broken chain then
-    // borrows its neighbour's `.eq("user_id", …)` and the check passes.
-    const scanner = new RegExp(NOTES_FROM_SRC, "g");
-    for (let m = scanner.exec(src); m; m = scanner.exec(src)) {
-      seen += 1;
-      const line = src.slice(0, m.index).split("\n").length;
-      const rest = src.slice(m.index + m[0].length);
-      const semi = rest.indexOf(";");
-      // A fresh non-global regex: `.search()` with the `g`-flagged scanner would move its
-      // `lastIndex` and make the outer loop skip matches.
-      const next = rest.search(NOTES_FROM);
-      // An UNTERMINATED chain FAILS rather than opening the window to end of file. That
-      // fallback let a query with no filter borrow one written anywhere later in the
-      // module, so a missing `;` was enough to turn this check green.
-      if (semi < 0 || (next >= 0 && next < semi)) {
-        bad.push(
-          `lib/notes.ts:${line}: query chain has no terminating ';' — cannot bound it`,
-        );
-        continue;
+    // Every DAL, not only the notes one — and run per FILE, so a chain in one module can
+    // never be cleared by a filter written in another.
+    for (const { dal, table } of DALS) {
+      const src = blankComments(read(dal));
+      const FROM_SRC = tableFromSrc(table);
+      const FROM = new RegExp(FROM_SRC);
+      let seen = 0;
+      // Scoped to the STATEMENT, not to a window of lines. A fixed window is fooled by
+      // the next query's filter when two chains sit close together — a broken chain then
+      // borrows its neighbour's `.eq("user_id", …)` and the check passes.
+      const scanner = new RegExp(FROM_SRC, "g");
+      for (let m = scanner.exec(src); m; m = scanner.exec(src)) {
+        seen += 1;
+        const line = src.slice(0, m.index).split("\n").length;
+        const rest = src.slice(m.index + m[0].length);
+        const semi = rest.indexOf(";");
+        // A fresh non-global regex: `.search()` with the `g`-flagged scanner would move
+        // its `lastIndex` and make the outer loop skip matches.
+        const next = rest.search(FROM);
+        // An UNTERMINATED chain FAILS rather than opening the window to end of file. That
+        // fallback let a query with no filter borrow one written anywhere later in the
+        // module, so a missing `;` was enough to turn this check green.
+        if (semi < 0 || (next >= 0 && next < semi)) {
+          bad.push(
+            `${dal}:${line}: query chain has no terminating ';' — cannot bound it`,
+          );
+          continue;
+        }
+        const chain = rest.slice(0, semi);
+        if (!OWNED_BY_FILTER.test(chain) && !OWNED_BY_INSERT.test(chain)) {
+          bad.push(`${dal}:${line}: no .eq("user_id", user.id) in this chain`);
+        }
       }
-      const chain = rest.slice(0, semi);
-      if (!OWNED_BY_FILTER.test(chain) && !OWNED_BY_INSERT.test(chain)) {
-        bad.push(`lib/notes.ts:${line}: no .eq("user_id", user.id) in this chain`);
+      if (seen === 0) {
+        bad.push(`${dal}: no ${table} query found at all — has the DAL moved?`);
       }
-    }
-    if (seen === 0) {
-      bad.push("lib/notes.ts: no notes query found at all — has the DAL moved?");
     }
     return bad;
   },

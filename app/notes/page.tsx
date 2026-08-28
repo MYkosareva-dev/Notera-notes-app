@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
+import { MessagesSquare } from "lucide-react";
 
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Header } from "@/components/Header";
+import { NavLink } from "@/components/NavLink";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { NoteCard } from "@/components/NoteCard";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -109,6 +111,13 @@ export default async function NotesPage({
         theme={theme}
         actions={
           <>
+            {/* Across to the chat screen (SPEC US8). Left of New note, because the
+                page owns creating a note and this only leaves the page. */}
+            <NavLink
+              href={ROUTES.chat}
+              label={copy.chat.navToChat}
+              icon={MessagesSquare}
+            />
             <NewNoteButton />
             <SignOutButton />
           </>

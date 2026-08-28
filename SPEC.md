@@ -6,7 +6,7 @@
 | # | Module | YES/NO | Reason |
 |---|---|---|---|
 | M1 | Auth & Sessions | **YES** | Email/password sign-in via Supabase Auth; every note is per-user |
-| M2 | Database | **YES** | Notes persist in Supabase Postgres, one `notes` table |
+| M2 | Database | **YES** | Notes persist in Supabase Postgres (`notes`); chat turns persist in `chat_messages`, added by the chat-persistence amendment (Block B US8) |
 | M3 | API Endpoints | NO | No custom HTTP API: reads happen in Server Components, writes in Server Actions, both through the Supabase SDK. See Decision in Block A |
 | M4 | Payments | NO | Free tool |
 | M5 | Legal & Privacy | NO | Study project; the only accounts are two dashboard-created test accounts owned by the developer; no analytics, no tracking cookies |
@@ -16,10 +16,10 @@
 | M9 | Notifications | NO | System sends nothing (password-reset flow is out of scope) |
 | M10 | Analytics | NO | Privacy + simplicity |
 | M11 | Cron | NO | No time-driven behavior |
-| M12 | Third-party integrations | **ONE** | Amended 2026-08-28 (owner override) — Supabase is the backend itself (covered by M1/M2); OpenRouter is now the one other runtime integration, server-side only and currently uncalled. See M15 |
+| M12 | Third-party integrations | **ONE** | Amended 2026-08-28 (owner override) — Supabase is the backend itself (covered by M1/M2); OpenRouter is the one other runtime integration, server-side only. Called by the chat page since the second amendment of the same day. See M15 |
 | M13 | Performance & scale | NO | Hard cap: 1,000 notes per user (rule B7) replaces the section |
 | M14 | Admin panel | NO | No operators |
-| M15 | AI/LLM | **CONNECTION ONLY** | Amended 2026-08-28 (owner override) — a server-side OpenRouter connection exists in `lib/openrouter/`. No feature calls it; see the amendment under Block B |
+| M15 | AI/LLM | **YES** | Amended twice on 2026-08-28 (owner override). First a server-side connection in `lib/openrouter/` with no caller; then the `/chat` page, which is its caller — a conversation with per-request memory, gated by `lib/chat.ts`. Acceptance criteria in Block B US8 |
 
 ---
 
@@ -62,13 +62,20 @@ app/
   notes/actions.ts           # Server Actions: createNote, updateNote, deleteNote, signOut
   notes/[id]/page.tsx        # Note editor page (Server Component fetch → <NoteEditor/>)
   notes/[id]/not-found.tsx   # "This note doesn't exist (anymore)."
+  chat/layout.tsx            # PROTECTED layout (US8): server-side getUser() check -> redirect("/sign-in")
+  chat/page.tsx              # Chat screen shell (Server Component, fetches nothing) + <ChatPanel/>
+  chat/actions.ts            # Server Action: sendMessage — the only caller of lib/chat.ts
 proxy.ts                     # Session refresh + redirect unauthenticated /notes* → /sign-in
 components/
   SignInForm.tsx  SignOutButton.tsx  NoteCard.tsx  NoteEditor.tsx
+  ChatPanel.tsx   NavLink.tsx
   TagEditor.tsx  TagFilter.tsx
   Header.tsx  EmptyState.tsx  ConfirmDialog.tsx  Toast.tsx  Skeletons.tsx
 lib/
   notes.ts                   # server-only data-access layer (DAL): ALL notes reads/writes; calls getUser() itself, throws/redirects when no user
+  chat.ts                    # server-only chat gate (US8): calls getUser() before any model call, validates the transcript, refuses a system role
+  openrouter/env.ts          # OPENROUTER_API_KEY, read once and validated (a SECRET — the fences are inverted from supabase/env.ts)
+  openrouter/server.ts       # the OpenRouter connection: one chat() over fetch, no dependency
   supabase/server.ts         # createServerClient (cookies) — used by the DAL and auth actions
   supabase/proxy.ts          # session refresh helper for proxy.ts
   supabase/client.ts         # createBrowserClient — ONLY where a client component must call auth
@@ -99,6 +106,7 @@ WORKLOG.md (private, gitignored)
 | `/sign-in` | Sign-in form | Public; a signed-in visitor is redirected to `/notes` |
 | `/notes` | Notes list + tag filter + New note | Authenticated only (`proxy.ts` + `notes/layout.tsx` server check) |
 | `/notes/[id]` | Note editor | Authenticated only; a note not owned by the user → `notFound()` |
+| `/chat` | Chat with the assistant | Authenticated only (`proxy.ts` + `app/chat/layout.tsx` server check + `lib/chat.ts`) |
 | unknown `/notes/[id]` | `notes/[id]/not-found.tsx` | Authenticated |
 
 ---
@@ -163,7 +171,7 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 - [ ] Direct URL access to a foreign note renders not-found (RLS returns no row)
 - [ ] SQL Editor shows rows with two distinct `user_id` values
 
-> Scope decision: IN — sign-in/out, protected workspace, notes CRUD with autosave, tags + tag filter, minimalist Notera-derived design, dark-mode toggle. OUT — do NOT build: sign-up page, password reset, search, image uploads, sharing, realtime sync, kanban boards, note-to-note links, export. The OUT list is a prohibition, not a backlog.
+> Scope decision: IN — sign-in/out, protected workspace, notes CRUD with autosave, tags + tag filter, minimalist Notera-derived design, dark-mode toggle, and (2026-08-28 amendment) the `/chat` page with per-conversation memory. OUT — do NOT build: sign-up page, password reset, search, image uploads, sharing, realtime sync, kanban boards, note-to-note links, export. The OUT list is a prohibition, not a backlog.
 >
 > **Amendment — 2026-08-28, owner override, OpenRouter connection.** M15 (AI/LLM) and M12
 > (third-party integrations) moved from NO to the values now in the module checklist. This
@@ -242,6 +250,180 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 - [ ] The control is reachable and correct on `/sign-in`, before any account exists
 - [ ] Keyboard: one tab stop for the group, arrows move between the three options
 - [ ] Both themes readable at 1280 and 375; nothing overflows in either
+
+### US8 — Chat with the assistant *(owner override, 2026-08-28; branch `feat/chat`)*
+1. Mara clicks **Chat** in the `/notes` header → `/chat` opens with an empty
+   conversation.
+2. She types "What is a good structure for a client brief?" and presses Enter → her
+   message appears on the right, a **Thinking…** row appears on the left, and the
+   assistant's answer replaces it.
+3. She types "tell me more about that" → the answer continues the same subject,
+   because the whole conversation is sent with the message.
+4a. She reloads the page → the conversation is still there, scrolled to the newest
+   message, and she can carry on where she left off.
+4b. She asks another follow-up after the reload → it still resolves against the earlier
+   turns, because the loaded conversation is what gets sent.
+4c. She presses **New chat** → the screen empties. Her next message starts a new
+   conversation; the previous one is not deleted, it simply stops being the newest.
+4d. She signs out and back in → her conversation is there. Her colleague signs in on
+   `account-b` → an empty screen, none of Mara's turns.
+4e. `supabase/chat-amendment.sql` has not been run yet → `/chat` shows "Couldn't load
+   this conversation." with **Try again**, and no composer. Not a crash.
+5. She signs out and pastes `http://localhost:3000/chat` → the server redirects to
+   `/sign-in`, and no model is called.
+- [ ] The list scrolls; her messages are on one side and the assistant's on the other, and each carries a visible **You** / **Assistant** label
+- [ ] The composer sits at the bottom and stays visible while the transcript scrolls
+- [ ] Enter sends; Shift + Enter inserts a newline; the hint under the box says so
+- [ ] The third message demonstrates memory — a follow-up with a pronoun resolves against the earlier turns
+- [x] A reload resumes the conversation, scrolled to the newest message
+- [x] A follow-up asked AFTER a reload still resolves against the earlier turns
+- [x] **New chat** empties the screen; the next message starts a new conversation and the old one is not deleted
+- [x] Account B sees none of account A's turns — two accounts, two conversations, verified in the SQL Editor
+- [x] With the migration un-run, /chat showed a load error with Try again — not a crash (the state the page was first built and read in, before the 2026-08-28 SQL Editor run; re-checkable by pointing the app at a project without the table)
+- [ ] A reply that could not be saved is still shown, with a notice saying it was not saved
+- [ ] `/chat` with no session redirects to `/sign-in`; the send refuses too (fence 1)
+- [ ] A failed send keeps her typed message on screen and explains why, with **Retry** on the three retryable reasons and no Retry on the two where it cannot help
+- [ ] The 2,001st character of one message is blocked with the `LIMITS`-derived message
+- [ ] Both themes readable at 1280 and 375; nothing overflows in either
+
+> **Amendment — 2026-08-28, owner override, chat page.** M15 moves from
+> **CONNECTION ONLY** to **YES**. The earlier amendment on this block said it plainly:
+> "A later phase that gives it a caller is a new amendment with its own user story, and
+> that is the phase that owes this file acceptance criteria." This is that phase, and the
+> boxes above are that debt paid. **Nothing moved off the OUT list** — chat was never on
+> it — and rule 17 continues to bind for every entry that is.
+>
+> **[SUPERSEDED by the chat-persistence amendment below — the conversation IS stored now.
+> This paragraph is kept because the trade it describes is what was reversed, and by whom.]
+> THE CONVERSATION IS NOT PERSISTED, and that is a decision rather than a shortcut.**
+> It lives in `ChatPanel`'s `useState` and is posted whole on every send, so the model
+> receives the history and a follow-up resolves against it (US8 step 3). The owner chose
+> this over a `messages` table at the planning gate. What it buys: no schema change, no
+> DDL to run, no second table under RLS, and no new writer beside `lib/notes.ts` — which
+> keeps rule B3b's chokepoint exactly as narrow as it was. What it costs is step 4: a
+> reload starts over, and `copy.chat.empty.description` says so on screen rather than
+> letting the user discover it. **Rule B6 is untouched and was never the constraint
+> here** — the ban on web storage is absolute and this feature wants nothing from it;
+> what US8 avoids is persistence of any kind, which is a stronger position than the rule
+> requires. A future `messages` table is a new amendment with its own Block C DDL.
+>
+> **The client holds the transcript, so the client can forge it.** Accepted, with the
+> reasoning written into `lib/chat.ts`: a forged history buys a different reply, to the
+> forger, in their own conversation. The model has no tools, reads no notes, writes
+> nowhere, and its output renders as a JSX text node (Block A prohibits
+> `dangerouslySetInnerHTML`). The one thing a caller may NOT do is send a
+> `role: "system"` turn — that would replace the app's own instructions, so the role is
+> checked against two literals and `ChatTurn` does not admit a third. What a forged
+> transcript CAN do is spend credit, which is what the two caps in Block C are for: they
+> are the real control, not the type.
+>
+> **Three fences, per rule B3, and fence 1 is the one that matters differently here.**
+> On `/notes` fence 1 keeps rows off the wire. On `/chat` the page has no data to leak —
+> it renders an empty conversation — so what fence 1 protects is the SPEND: `lib/chat.ts`
+> calls `getUser()` before it validates anything and before it calls OpenRouter, so an
+> anonymous POST costs nothing. Fence 2 is `app/chat/layout.tsx`, a separate file from
+> the notes layout on purpose (a shared parent would protect future routes silently, and
+> rule B3 counts fences per route). Fence 3 is `proxy.ts`, via `isProtectedPath` — renamed
+> from `isWorkspacePath` in this change, because a predicate that grows a second member
+> while keeping a name that describes only the first is how one of the two eventually
+> gets left out.
+>
+> **What rule B1 and rule B2 do NOT reach, stated so their absence is not read as a
+> miss.** B1 governs writes — local state → debounced action → Supabase →
+> `revalidatePath` — and a send writes nothing, so there is no path to revalidate and
+> `sendMessage` deliberately does not call it (the Phase 6 gate measured what that call
+> costs: ~6.4 kB of discarded RSC payload and 2-3 extra Supabase round-trips). B2's
+> 300 ms debounce exists because per-keystroke writes caused input lag; a message is sent
+> by an explicit submit, once, and debouncing a metered call would only make the spend
+> harder to predict. **B8's retry ladder is likewise not extended here**: a failed save
+> retries three times because a note must not lose text, while a failed send has lost
+> nothing — the message is still on screen — and every attempt costs money, so the retry
+> is a button the user presses and never automatic. Same reasoning, opposite conclusion,
+> and it is recorded in both `lib/chat.ts` and `ChatPanel`.
+>
+> **`DEFAULT_MODEL` is not chosen or changed by this amendment** — the chat page takes
+> whatever the connection records, and the id is deliberately not restated here so this
+> paragraph cannot go stale when the model moves (it since has: see M15 constraint (3)).
+> No new dependency was added:
+> the feature is the existing `chat()` over `fetch`, plus a gate, an action and a
+> component.
+
+> **Amendment — 2026-08-28, owner override, chat persistence.** The conversation is now
+> **stored in Supabase**, and this supersedes the paragraph above that recorded the
+> opposite. That paragraph is kept rather than deleted, because the trade it describes is
+> what was reversed and by whom; what is no longer true is its conclusion. M2 (Database)
+> now covers a second table. Acceptance boxes 4a-4e below replace box 4's old "a reload
+> starts a fresh conversation".
+>
+> **What changed and what deliberately did not.** Storage seeds `ChatPanel`'s `turns`
+> once, on mount, from `loadLatestConversation()`. It is not consulted again: the prompt
+> is still built from the client's array, `sendMessage` still receives a TRANSCRIPT rather
+> than a conversation id to look up, and the trim is the same trim. So the
+> in-conversation memory behaviour is untouched — the owner's constraint on this change —
+> and persistence is a layer under it rather than a rewrite of it.
+>
+> **One conversation resumes, and it is the newest.** `/chat` loads the newest
+> `LIMITS.chatHistoryMax` turns the user owns and keeps the ones belonging to the most
+> recent conversation. There is no conversation list, no `/chat/[id]` route and no
+> `?c=` parameter — none was asked for, and each is a surface with its own validation.
+> **New chat** clears the screen and the next message mints a new id.
+>
+> **NO `conversations` TABLE, and the consequence is written down rather than hidden.** A
+> conversation is a group of messages and nothing else — no title, no settings, no
+> independent lifetime — so a parent table would exist to hold a key that
+> `chat_messages.conversation_id` already holds. The one thing it would buy is an EMPTY
+> conversation being able to exist, and that is exactly the state that needs no storage.
+> The visible cost: pressing **New chat** and reloading WITHOUT typing anything resumes
+> the previous conversation, because the new one left no trace to resume (G-44).
+>
+> **BOTH ROWS ARE WRITTEN AFTER THE REPLY, IN ONE INSERT, AND NOTHING IS WRITTEN ON A
+> FAILED SEND.** This is the load-bearing decision of the whole amendment. Writing the
+> question first would leave an unanswered row behind whenever the model call failed, and
+> **Retry** would then insert a second copy of it; making that idempotent needs a
+> client-minted id and a unique constraint to deduplicate against — real machinery for a
+> case this ordering does not have. The cost is G-42: a message whose send failed is not
+> stored, so it is on screen with **Retry** until a reload, and a reload loses it. That is
+> the same bargain rule B8 already makes for a note whose save is suspended, where typed
+> text lives in local state until a write lands.
+>
+> **A write failure is NOT a failed send** (G-43). The reply exists and has been billed
+> for, so `ChatSendResult` carries `persisted: false` on its SUCCESS arm: the answer is
+> shown and a persistent notice says the exchange was not saved. Reporting `unavailable`
+> would discard something already paid for; reporting plain success would let the user
+> find out on their next visit.
+>
+> **The table is APPEND-ONLY at the database, not by convention.** It has SELECT and
+> INSERT policies and no UPDATE or DELETE policy at all, so RLS denies both. Nothing in
+> the app edits or removes a turn, and two absent policies state that more strongly than
+> a comment in TypeScript could. **New chat** therefore deletes nothing — the old
+> conversation stays where it is and stops being the newest.
+>
+> **Rule B1 now reaches this path, and `revalidatePath` is called** — on a send that
+> actually stored something, and not otherwise. It was correctly absent while chat wrote
+> nothing. It earns its place beyond rule B1 now, too: `/chat` RENDERS from the database,
+> so a completed exchange makes the client Router Cache's payload stale, and a
+> `/chat` → `/notes` → `/chat` navigation could otherwise mount an older conversation.
+> The cost is the one the Phase 6 gate measured on `saveNote` (~6.4 kB of discarded RSC
+> payload plus an extra `getUser()` and select), per MESSAGE against a model call that
+> already took seconds; it inherits the same post-sprint debt item.
+>
+> **Rule B2's debounce and rule B8's retry ladder are still NOT extended here**, for the
+> reasons the first amendment gives. Nothing about storage changes them: a message is one
+> explicit submit, and every attempt costs credit.
+>
+> **A defect in the pre-persistence code was found and fixed in this change, and it is
+> recorded because persistence would have made it permanent.** `isChatTurn` capped EVERY
+> turn at `LIMITS.chatMessageMax` (2,000) — the composer's cap. Assistant replies are
+> routinely longer, and replies go back as history, so ONE long answer made `isTranscript`
+> refuse the whole conversation and every later message failed as `invalid` — a code that
+> deliberately offers no **Retry**, because the same bytes would be refused again. It was
+> self-healing only because nothing was stored: a reload cleared the poisoned turn. Stored,
+> a conversation would have been permanently unsendable from its first long reply. The fix
+> is a per-role cap (`chatReplyMax` for a reply) plus `chatTranscriptMax` on the TOTAL,
+> which is the honest spend control — forty turns of legitimately long replies is an
+> unbounded prompt, and no per-turn cap can bound that without refusing real replies.
+> `ChatPanel` trims to fit both caps and the server re-checks both. Confirmed by lifting
+> the predicate out and asserting on it before and after.
 
 ---
 
@@ -371,6 +553,138 @@ create trigger notes_set_updated_at
 >
 >    **What the audit did NOT change, stated so the fence is not misread as having moved:** which rows a signed-in user can see. Fence 1 (`lib/notes.ts`, `getUser()` plus an explicit `.eq("user_id", user.id)`) and the four owner-only predicates are byte-for-byte what they were. Two of the three amendments narrow *who can reach the table at all*, and the third only makes a future weakening visible.
 
+### `supabase/chat-amendment.sql` — chat history (Block B US8), owner-run 2026-08-28
+
+> **STATUS: ran in the SQL Editor on 2026-08-28**, and its five uncommented verification
+> queries read as described — `relrowsecurity` is `t`; `has_table_privilege('anon', …)` is
+> false for all four verbs; `pg_policies` shows exactly the two policies below and nothing
+> for UPDATE or DELETE; `pg_indexes` lists `chat_messages_user_seq_idx` on
+> `(user_id, seq DESC)` (quoted verbatim below, with the policies); and the per-account row
+> count returns cleanly. `schema.sql` was
+> rewritten in the same change to match what now exists (rule 8), and
+> `chat-amendment.sql` stays as the record of what ran rather than a further thing to run.
+>
+> **The `pg_policies` output is recorded VERBATIM below and the rest as prose, and the
+> asymmetry is deliberate.** Every other query asserts that something IS a certain way,
+> which prose states and a re-run confirms. This one asserts that two things are ABSENT,
+> and an absence is the one claim prose is bad at: "nothing for UPDATE or DELETE" reads
+> identically whether it was checked or assumed, while a two-row result table shows it.
+> The `qual` column is also the only place the InitPlan form `(select auth.uid()) =
+> user_id` can be seen to have actually landed as written rather than been normalised away.
+
+```
+ schemaname | tablename     | policyname               | permissive | roles           | cmd    | qual                                    | with_check
+------------+---------------+--------------------------+------------+-----------------+--------+-----------------------------------------+-----------------------------------------
+ public     | chat_messages | chat_messages_insert_own | PERMISSIVE | {authenticated} | INSERT | NULL                                    | (( SELECT auth.uid() AS uid) = user_id)
+ public     | chat_messages | chat_messages_select_own | PERMISSIVE | {authenticated} | SELECT | (( SELECT auth.uid() AS uid) = user_id) | NULL
+(2 rows)
+```
+
+Three things to read out of that, because two of them look like problems and are not:
+
+1. **Two rows, and that is the append-only property.** No `UPDATE` row, no `DELETE` row, so
+   RLS denies both verbs outright — there is no policy to permit them. This is the claim the
+   output is pasted for: a future reader can compare row-for-row instead of trusting a
+   sentence. If a third row ever appears here, the property is gone.
+2. **`qual` is NULL on the INSERT policy, and `with_check` is NULL on the SELECT policy.
+   Both are correct, and neither is a missing fence.** An INSERT policy has no `USING`
+   clause — there is no existing row to test — so its whole fence lives in `WITH CHECK`; a
+   SELECT policy is the mirror image. Written down because "qual: NULL" on a security
+   policy is exactly the kind of line that reads as a hole at a glance, and someone will
+   eventually glance at it.
+3. **The scalar subquery survived the round-trip.** `(( SELECT auth.uid() AS uid) = user_id)`
+   is Postgres's own rendering of what the DDL wrote as `(select auth.uid()) = user_id` — the
+   `AS uid` is the planner naming the subquery's output column, not a change of meaning. What
+   matters is that the `SELECT` is still there: had it been flattened to `auth.uid() =
+   user_id`, the InitPlan rewrite (Supabase's `auth_rls_initplan` advisory, applied to the
+   four notes policies at the Phase 7 gate) would have been silently undone, and the call
+   would be evaluated once per candidate row again. Same rows either way — this is cost, not
+   exposure — but it is the only place the rewrite can be seen to have landed.
+
+And the index, verbatim from `pg_indexes.indexdef`:
+
+```
+CREATE INDEX chat_messages_user_seq_idx ON public.chat_messages USING btree (user_id, seq DESC)
+```
+
+`seq DESC` is the half worth checking rather than the index's existence: the read is
+`where user_id = $1 order by seq desc limit $2`, and an ascending index would still answer
+it — by scanning and sorting. `btree` is the right type here and not GIN, which
+`notes_tags_idx` needs only because `@>` on an array is not a btree operation.
+
+> **Probes 4 and 5 in that file were NOT run, and stay commented out.** Both WRITE to the
+> table: 4 expects two refusals from the content check, and 5 expects a SUCCESS whose
+> 2,001-character row then has to be deleted by the table owner, since RLS gives nobody a
+> DELETE policy. Leaving them commented is what keeps a straight run of the file from
+> firing them; the constraint they probe is still fenced by `lib/chat.ts` and by the
+> `check` itself, and Block H 5d(e) covers the same asymmetry at the predicate level
+> without touching the database. Uncomment them one at a time, deliberately, and clean up
+> after 5.
+
+```
+auth.users (managed by Supabase Auth — never modified by this app)
+    1 ──────────── N
+public.notes (user_id)
+    1 ──────────── N
+public.chat_messages (user_id, conversation_id)
+```
+
+Five decisions in that table, each of which was a choice:
+
+> Decision: **no `conversations` table.** A conversation is a group of messages and
+> nothing else — no title, no settings, no independent lifetime — so a parent table would
+> exist only to hold a key `chat_messages.conversation_id` already holds. The one thing it
+> would buy is an EMPTY conversation being able to exist, which is exactly the state that
+> needs no storage: **New chat** clears the screen and the next message mints the id. The
+> visible cost is G-44, and it is the whole of the cost.
+> Decision: **`seq bigint generated always as identity` is the ordering, not
+> `created_at`.** A question and its answer are inserted in ONE statement, inside one
+> transaction, and `now()` is transaction-scoped — so both rows carry an identical
+> timestamp and their relative order by it is undefined. A conversation whose answer can
+> sort before its question is not a conversation. An identity column is assigned in row
+> order within a multi-row insert, which is what makes the transcript deterministic.
+> `created_at` stays for display and forensics; no `ORDER BY` in the app uses it.
+> Decision: **the content bounds are asymmetric by role**, and this is the cap that
+> `tagMax` could not have. `char_length(content) <= 2000` applies only where
+> `role = 'user'` — expressible as a plain `check` because it needs no subquery and no
+> other row, unlike the two caps Block C's Phase 7 batch declined. A reply is bounded at
+> 100,000 instead, because its length is the model's to decide and a 2,000 cap would
+> refuse a good answer AFTER the call had been paid for.
+>
+> **That 100,000 is a STORAGE-SANITY bound and not a promise about the model, and the
+> distinction was learned the hard way.** It was first justified as sitting above anything
+> the default model could physically emit — arithmetic from `openai/gpt-4o-mini`'s 16,384
+> max output tokens (~65,000 characters). The lab's Part 4 moved the default to
+> `anthropic/claude-haiku-4.5` — recorded in the M15 amendment under constraint (3), which
+> is where the id and its provider figures live — and its max is 64,000 output tokens
+> (~256,000 characters),
+> and the justification died with the old id. **The cap is deliberately NOT raised.** An
+> over-long reply fails the check, and the app SHOWS the reply while reporting the exchange
+> unsaved (G-43) — the path a failed write already takes, and the one this design chose on
+> purpose. Raising the bound means another DDL run; setting `max_tokens` on the request
+> would truncate real answers to protect a storage limit. The lesson recorded for next
+> time: a constraint's justification must not be arithmetic from one model's limits, because
+> the model is the thing most likely to change.
+> Decision: **SELECT and INSERT policies only — the two MISSING policies are the
+> feature.** With no `for update` and no `for delete` policy, RLS denies both, so the table
+> is append-only at the DATABASE rather than by convention in the DAL. Nothing in the app
+> edits or removes a turn, and two absent policies say that more strongly than a comment
+> in TypeScript. **New chat** therefore deletes nothing. Adding either policy later is a
+> deliberate act with a visible diff, which is the point.
+> Decision: **one index, `(user_id, seq desc)`, and none on `conversation_id`.** The
+> table has exactly one access path — `where user_id = $1 order by seq desc limit $2`, how
+> `lib/chatMessages.ts` reads the newest conversation in a SINGLE query — and this index
+> is what that walks. No query filters by `conversation_id` in the database; the grouping
+> happens in the DAL over rows already fetched. An index nothing reads is maintenance paid
+> on every message for nothing. Add one the day a conversation list needs it.
+>
+> **NO ROW CAP, and the reasoning is Block C's own.** Nothing bounds how many turns an
+> account may store — the equivalent of `LIMITS.notesPerUser` — because a per-user row
+> count needs to see other rows, which means a trigger, which is the fence this file
+> already declined for `notesPerUser` and `tagMax`. Same trade, same accepted limitation,
+> and the blast radius here is storage rather than correctness. Revisit if this project
+> ever stops being a two-account study project.
+
 ### Seed data (run AFTER creating the two test accounts; replace the UUIDs with the real ones from Authentication → Users)
 ```sql
 insert into public.notes (user_id, title, content, tags) values
@@ -397,6 +711,18 @@ export const LIMITS = {
   tagMax: 24,        // characters per tag
   tagsPerNote: 10,
   notesPerUser: 1_000,
+
+  // Chat caps (US8). The first two exist because sendMessage is a publicly callable POST
+  // that SPENDS CREDIT on every call — the only endpoint here where an oversized payload
+  // costs money rather than time. They are what makes a client-held transcript
+  // acceptable. Since the chat-persistence amendment chatMessageMax ALSO has a database
+  // counterpart, in chat_messages' content check; the other three do not, and do not need
+  // one (see the notes on each in lib/types.ts).
+  chatMessageMax: 2_000,      // characters in one USER message
+  chatTurnsMax: 40,           // messages of history that travel with a send, newest kept
+  chatReplyMax: 100_000,      // one stored assistant reply — the model's length to decide
+  chatTranscriptMax: 80_000,  // total characters one send may carry; the real spend control
+  chatHistoryMax: 200,        // turns /chat loads on render, which is not what the model gets
 } as const;
 ```
 
@@ -441,6 +767,38 @@ Phase 5 adds six DERIVED tokens beside them in `app/globals.css` — the pressed
 ```
 
 Phase 5 adds exactly one new motion: a 160 ms entrance (`--animate-rise`) for things that appear over the page — toast, menu, dialog — plus colour and shadow transitions on hover. It does not touch the two pre-existing looping animations, the `animate-spin` on a pending submit and the `animate-pulse` on skeleton bars. Every animation in the app, new and old, is suppressed under `prefers-reduced-motion: reduce`.
+
+### The chat screen (Block B US8)
+
+`/chat` is the one screen that is **pinned to the viewport** instead of growing with its
+content: `h-dvh` plus `overflow-hidden` on the page, so the TRANSCRIPT scrolls and the
+composer stays where it is. That is what makes the composer reachable without a `fixed`
+element, and it is why `min-h-0` on the scroll container is load-bearing — a flex child's
+default `min-height: auto` refuses to shrink below its content, so without it the list
+would push the composer off the bottom of the screen instead of scrolling. The same trap
+`min-w-0` solves in the notes grid.
+
+It introduces **no new token, no new hue and no new motion.** The user's bubble is the
+accent fill already used by every primary button (`bg-accent` / `text-on-accent`), the
+assistant's is a card (`bg-surface`, `border-border`, `shadow-card`), and the pending row
+reuses the two pre-existing looping animations — `animate-spin` on the icon and
+`animate-pulse` on the word — both already suppressed under `prefers-reduced-motion`. The
+auto-scroll asks for `behavior: "smooth"` only when that query does not match, because a
+smooth scroll is an animation like any other.
+
+**Attribution is in words, not only in placement.** Left and right say nothing to a
+screen reader and nothing to a reader who cannot compare alignment, so every bubble
+carries a small muted **You** / **Assistant** label above it. The transcript is a
+`role="log"` region with an accessible name, so a reply is announced when it arrives
+rather than left to be discovered; the composer's `aria-label` is its name, because a
+placeholder is not a label — the same rule the editor's two borderless fields follow.
+
+The two header links between `/notes` and `/chat` are `NavLink`, a new presentational
+component. It exists because the neutral-button style was already written out twice
+(`SignOutButton`, the editor's back link) and US8 needed it twice more; the Phase 5 gate
+parked duplicated blocks as styling debt, and adding two more copies of a class string is
+not the way to honour that. They are LINKS, not submits: navigation is a GET, and only
+the two Server Action controls in this app need to be forms.
 
 ### Dark palette (Block B US7)
 
@@ -574,6 +932,8 @@ the caret stay light on a dark page.
 | content | string | ≤ `LIMITS.contentMax` | "The note is limited to {n} characters." | block further input, toast once |
 | tag | string | trimmed; 1–`LIMITS.tagMax` chars; no duplicates on the note | "Tags are limited to {n} characters." / "This tag is already on the note." | toast, tag not added |
 | tags count | — | ≤ `LIMITS.tagsPerNote` | "A note can have up to {n} tags." | toast, tag not added |
+| message | string | required; trimmed non-empty; ≤ `LIMITS.chatMessageMax` | "A message is limited to {n} characters." | block further input, toast once |
+| transcript | `ChatTurn[]` | non-empty; ≤ `LIMITS.chatTurnsMax` turns; every `role` is `user` or `assistant` (never `system`); last turn is the user's | — (never shown: the UI cannot produce a violation) | refuse the send, `invalid` |
 
 All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` — never typed out (lesson from the previous review).
 
@@ -607,7 +967,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 - RLS on `public.notes` for all four verbs, each restricted `to authenticated` (Block C)
   + explicit `user_id` filter (B4), and `anon`'s default DML grants on the table revoked,
   so the publishable key alone cannot reach it at all.
-- Three env vars exist, and the third is the odd one out. `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are public by design and hold low-privilege values; the service-role key is never added to the project in any form. **`OPENROUTER_API_KEY`** (amended 2026-08-28, M15) is the first SECRET this project holds, and therefore the first env var that must never carry a `NEXT_PUBLIC_` prefix — it spends real credit, and Next inlines every `NEXT_PUBLIC_*` value textually into the browser bundle. Three fences, weakest to strongest: `lib/openrouter/env.ts` refuses at boot any `NEXT_PUBLIC_*` var named for the key or holding a value shaped like one; **both** modules in `lib/openrouter/` import `server-only`, so the **build fails** if a Client Component imports either (measured — the build errors with "'server-only' cannot be imported from a Client Component module"); and `npm run check` scans every code file the repo ships for both the public-prefixed name and a raw key literal.
+- Three env vars exist, and the third is the odd one out. `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are public by design and hold low-privilege values; the service-role key is never added to the project in any form. **`OPENROUTER_API_KEY`** (amended 2026-08-28, M15; given a caller by US8 the same day) is the first SECRET this project holds, and therefore the first env var that must never carry a `NEXT_PUBLIC_` prefix — it spends real credit, and Next inlines every `NEXT_PUBLIC_*` value textually into the browser bundle. Three fences, weakest to strongest: `lib/openrouter/env.ts` refuses at boot any `NEXT_PUBLIC_*` var named for the key or holding a value shaped like one; **both** modules in `lib/openrouter/` import `server-only`, so the **build fails** if a Client Component imports either (measured — the build errors with "'server-only' cannot be imported from a Client Component module"); and `npm run check` scans every code file the repo ships for both the public-prefixed name and a raw key literal.
   > Decision (audit, 2026-08-28): the fence is on **`env.ts` as well as `server.ts`**, and it was added because an audit asked what stopped a Client Component importing `env.ts` directly. The answer was "nothing structural" — only two conventions (server.ts is the sole importer; the var has no `NEXT_PUBLIC_` prefix, so a client import reads `undefined` and throws). A crash is not a leak, but it is not a fence either. Owner's call: close it with the fence. Cost, recorded: `server-only` is not an installed package (Next aliases the specifier), so `env.ts` can no longer be imported by a bare `node --experimental-strip-types` probe — re-probe its guards by importing a copy with the first line removed, and never delete the fence to make a test easier.
 - No hardcoded email addresses anywhere in the repo.
 - All user text renders through JSX text nodes; `dangerouslySetInnerHTML` prohibited.
@@ -661,6 +1021,25 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 30. Theme clicked while offline → the page changes immediately and the cookie write fails. Nothing is shown and the change is NOT rolled back: the user has the theme for as long as this document lives, and only the memory of it is lost. Logged at `warn` for the developer. Reverting would turn a lost preference into a visible malfunction, and a toast would spend rule B8's single-notice queue — the one unsaved TEXT needs — on a colour scheme. Same position as the Sign out row in Block E's actions table. **Two consequences, both accepted:** re-picking the SAME option is not a retry — a radio fires no `change` event when it is already checked, so the only way to attempt the write again is to pick another option and come back; and the next server render re-seeds the control from the cookie, so a navigation restores the stored theme rather than leaving a control that disagrees with its own page (the fix for a desync found at the code-review gate).
 31. Forged `notera-theme` cookie, or a forged POST to the theme action → any value that is not one of the three known words is read as `system`, and the action refuses to write it. The endpoint is anonymous-reachable by design (`/sign-in` needs it before there is a user) and safe because its whole authority is "set one cookie on the caller's own browser to one of three words" — it touches no Supabase client, no `getUser()` and no DAL, and must never gain a branch that does.
 
+**Chat (US8)**
+32. Enter pressed while an IME is composing → the candidate commits and nothing is sent. `event.nativeEvent.isComposing` is checked for exactly this: without it, typing Japanese or Chinese sends the message part-way through a word.
+33. Send clicked with the keyboard → focus moves to the composer *before* the button is disabled. Disabling the focused element drops the caret to `<body>`, so a keyboard user would lose their place on every message — the same debt the Toast viewport pays when a control vanishes.
+34. Network dies mid-send → `callAction` turns the rejection into `unavailable`, the pending row clears, the typed message STAYS on screen, and a persistent notice offers **Retry**. A bare `await` here would have left `pending` set and the composer dead for the life of the page — the failure the Phase 4 browser pass found in the editor.
+35. Session expires between opening `/chat` and sending → fence 1 answers `sessionExpired` before any model call, and the notice offers **Sign in** (a full navigation, so the server decides what to render). The same shape as G-1, one screen over.
+36. The key is missing, revoked, or out of credit, or `DEFAULT_MODEL` stops routing → all three arrive as `misconfigured`, whose copy names the app's owner and offers NO retry, because retrying sends an identical request to an identical refusal. Which of the three it was is in the server log, where the person who can fix it is looking.
+37. A hand-built POST carrying `role: "system"` → refused. `isChatTurn` compares the role against two literals, so the app's own instructions cannot be replaced from the wire; a single bad turn refuses the whole transcript rather than being dropped from it. Verified by extracting the predicate and asserting on it, then by mutating the check to `typeof role === "string"` and confirming three assertions fail.
+38. A transcript longer than `LIMITS.chatTurnsMax`, or a message over `LIMITS.chatMessageMax` → refused server-side. The client trims history to the newest turns before sending, so a long conversation keeps working rather than hitting a wall; the server's copy of both caps is what stops a forged POST, and they are the reason a client-held transcript is acceptable at all.
+39. A transcript ending in an assistant turn → refused. Without that check a caller can ask the model to continue its own sentence, which produces a reply that answers nothing; it also pins what a send means — exactly one new user message, with history behind it.
+40. The conversation passes `LIMITS.chatTurnsMax` turns → the oldest turns stop being sent and the assistant loses the beginning of the conversation. The transcript on screen is complete; the memory is not. Accepted and NOT surfaced: a notice would interrupt a working conversation to report a limit the user cannot act on, and the cap exists to bound spend per request.
+
+41. Two tabs open on the same conversation → both append to it, and the stored transcript interleaves them in `seq` order. Not last-write-wins (nothing is overwritten — the table is append-only), so nothing is lost; what a reload shows is a merged conversation neither tab displayed. Accepted, the same position as G-C1 for notes.
+42. A send fails, then the page is reloaded before **Retry** → the message is gone. Nothing is written until the model has answered (`appendExchange`), which is what keeps Retry from inserting a duplicate question. On screen it is still there with its notice until the reload; this is rule B8's bargain, one screen over.
+43. The reply arrives but the insert fails → the reply is SHOWN and a persistent notice says the exchange was not saved. `persisted: false` on the success arm is what makes that expressible: the answer was paid for, so discarding it would be worse than keeping it, and reporting plain success would hide the loss until the next visit. `conversationId` is left unchanged, so a later successful send still appends to the same conversation — the stored transcript simply has a gap.
+44. **New chat** pressed, nothing typed, page reloaded → the PREVIOUS conversation comes back. An empty conversation has no rows and therefore no identity to resume; a `conversations` table or a `?c=` parameter would fix exactly this case, and SPEC US8 records why neither was added.
+45. A conversation longer than `LIMITS.chatHistoryMax` → its newest turns load and the beginning is missing from the screen. The rows are not deleted; only the read is bounded. Nothing is shown, because the cap bounds one page render and the transcript that reaches the model is bounded far lower anyway.
+46. `supabase/chat-amendment.sql` has not been run → the read fails with `42P01` (undefined_table), the screen shows "Couldn't load this conversation." with **Try again**, and the composer is hidden so nothing can be appended to history that could not be read. The server log names the code and the file to run; the user sees no mention of a migration, because there is no user-facing copy for one and there should not be.
+47. A forged `conversationId` in a POST → a non-uuid is refused as `invalid`; a well-formed one that belongs to another account files the caller's OWN messages under that id, and can do nothing else. Every read filters by `user_id` and the insert writes the caller's own owner id, so it cannot read another account's turns and cannot alter them. Refusing a malformed value rather than silently treating it as "start a new conversation" is deliberate: the silent path would hide a client bug that loses history.
+48. A stored row whose `role` is neither `user` nor `assistant` → that turn is dropped from the load and the rest of the conversation still renders. Unreachable through the app (the column has a `check` constraint), so this is the read path's own guard, the same shape as the DAL's control-character guard for tags — one unreadable turn must not cost the whole conversation.
 ---
 
 ## BLOCK H: Definition of Done
@@ -677,8 +1056,11 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
    The known prose hits, enumerated so a future run can tell "unchanged" from "new" — and counted for a FRESH CLONE, not for one particular working tree: **four** vendor skill-doc files, **two** files under `docs/`, **two** under `.claude/` (the `security-auditor` agent and the `supabase-security` skill it loads — a security auditor's own brief cannot avoid naming what it hunts for), and **three** lines of SPEC.md (Block G edge case 25, and two lines of this check — the grep itself, and the paragraph below it that lists the four spellings). None is a finding, and none is in `npm run check`'s scope: `docs/`, `.claude/` and SPEC.md are all excluded by name, because prose about a thing is not a use of it. Of the new ones, `docs/supabase-postgres-queries-filters.md` carries an upstream snippet naming the secret-key variable — the very snippet that made the widening necessary — and `docs/supabase-api-keys.md` is the annotated record of the new key naming, which cannot document two prefixes without writing them. Measured, not assumed, on the tree that produced this edit: the old needle matched four skill-doc files plus SPEC.md; the new one adds exactly those four files. The four are `supabase/SKILL.md` and `supabase-postgres-best-practices/references/security-rls-performance.md`, each appearing TWICE — once under `.agents/skills/` and once under `.claude/skills/`. Both copies are tracked deliberately: the rubric grades the official Supabase Agent Skills being installed in the repo, and removing either could break skill discovery on a fresh clone. `WORKLOG.md` holds two more, which this check must never print (rule 19). Anything else is a finding.
    **A trap worth knowing before you re-run this by hand:** on a working tree where `.claude/skills/*` are symlinks into `.agents/skills/*`, `grep -r` does NOT follow them and reports two hits instead of four. Use `grep -R`, or trust `npm run check`, which never walks either tree. This is exactly how the first version of this list came to be short by two.
 5b. Dark mode holds at both widths and in all three states: with the cookie absent (OS decides), set to `light` on a dark OS, and set to `dark` on a light OS — checked on `/sign-in` and `/notes`, with no flash on first paint in any of them. `npm run check`'s web-storage check covers the other half of the claim: the preference is a cookie, and no shipping file so much as names a web-storage API — comments in `lib/theme.ts` and `app/layout.tsx` say "web storage" for exactly that reason, rather than growing the known-hits list for prose.
+5c. **The chat fences hold, and the check is a mutation rather than a green grep.** (a) A Client Component importing `lib/chat.ts` or either `lib/openrouter/` module must FAIL `npm run build` — verified by adding a throwaway `"use client"` file that imports it and confirming the build errors with "server-only cannot be imported from a Client Component module". (b) `curl -s -o /dev/null -D - http://localhost:3000/chat` with no session answers `307` to `/sign-in`. (c) The transcript predicates refuse a `role: "system"` turn, both caps, and a transcript ending in an assistant turn — checked by lifting `isChatTurn` and `isTranscript` verbatim out of `lib/chat.ts` into a plain `node` probe (the module cannot be imported directly: `server-only` is not a resolvable package, the cost `lib/openrouter/env.ts` already records), then MUTATING the role test to `typeof role === "string"` and confirming the assertions fail. A guard that has not been broken has not been tested.
+   **Not yet verified, and named rather than implied:** an unauthenticated POST to the `sendMessage` Server Action returning `sessionExpired`. The recipe is the one recorded for this project — `Next-Action: <id>` with the id read from `.next/server/server-reference-manifest.json`, `_1_`-prefixed body fields, `0=[...]` last — and it needs the id from the build that is actually serving, since dev ids rotate on recompile. Fence 1 is a two-line early return read directly above the spend, so this probe would confirm rather than discover; it belongs in the next verification batch.
+5d. **Chat persistence, and the parts of it a grep cannot see.** (a) `supabase/chat-amendment.sql` ran in the SQL Editor on 2026-08-28 and its **five uncommented** verification queries read as described — RLS on, `anon` refused all four verbs, exactly TWO policies (`{authenticated}`, SELECT and INSERT, with nothing for UPDATE or DELETE — recorded verbatim in Block C, because an absence is what prose states worst), `chat_messages_user_seq_idx` on `(user_id, seq DESC)` present, and the per-account row count returning cleanly. **Probes 4 and 5 stay commented out and were NOT run**, deliberately: both WRITE to the table (4 expects two refusals from the content check; 5 expects a success whose 2,001-character row then needs deleting by the table owner, RLS giving nobody a DELETE policy), so a straight run of the file must not fire them. Confirmed by evidence rather than by reading the file: `select count(*) from public.chat_messages where role = 'assistant' and content = repeat('x', 2001);` returns **0**, so probe 5 never fired and left nothing behind. That predicate rather than a bare `count(*)`, because it stays decisive after the table has real conversations in it — a row count only answers the question while the table is empty. The asymmetry they probe — a 2,001-character USER message refused where an ASSISTANT one is accepted — is covered at the predicate level by (e) below without touching the database, and by the `check` constraint itself, which is one line and readable. (b) **VERIFIED by the owner in a browser, 2026-08-28**, all six steps: a reload keeps the conversation and lands scrolled to the newest message; a pronoun follow-up asked AFTER a reload resolves correctly **with a long reply in the loaded history** — the case the per-role cap fix exists for, and the one a green static check could not have told us about; **New chat** starts a fresh conversation without deleting the old one; sign-out and sign-in keep it; account B sees none of it. (c) **VERIFIED, same pass:** `select user_id, count(*), count(distinct conversation_id) from chat_messages group by user_id;` shows two distinct `user_id` values, which is per-account scoping evidenced for the SECOND table the way check 7 evidences it for the first. (d) The chokepoint check has TEETH, verified by mutation and not by reading a PASS: dropping `.eq("user_id", user.id)` from `lib/chatMessages.ts` FAILS, adding a `.from("chat_messages")` to a component FAILS, and REMOVING `lib/chatMessages.ts` from `DALS` in `scripts/check.mjs` also FAILS — so forgetting to register a new table is loud rather than silent. All three confirmed. (e) The transcript predicates and the client-side trim agree: a >2,000-character assistant reply is a valid history turn, an over-budget transcript is refused by the server AND trimmed to something acceptable by `historyFor`, and a fully loaded conversation still sends. Checked by lifting `isChatTurn`, `isTranscript` and `historyFor` verbatim into a plain `node` probe (the modules cannot be imported: `server-only` is not a resolvable package).
 6. `grep -rn "getSession()" app/ lib/ proxy.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
-7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`).
+7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`). Since the chat-persistence amendment the same evidence exists for the second table — see check 5d(c) — and both are worth capturing, because per-account scoping is the thing the sprint grades and there are now two tables it has to hold for.
 8. README documents: purpose, run steps, all **three** env vars (the third, `OPENROUTER_API_KEY`, added by the 2026-08-28 amendment — documented with the reason it carries no `NEXT_PUBLIC_` prefix, not merely listed) and where to find their values — **Settings → Data API** for the Project URL and **Settings → API Keys** for the publishable key, with the legacy "anon public" tab named as the fallback for an older project (corrected at the security audit, W3: the README sent the operator to a single "Settings → API" panel and asked for a label this project's own key no longer carries), a screenshot of the local app, and the optional tasks with their branch/PR names.
 9. Public self-signup is **off** at the Auth API, not merely unused by the app:
    `curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/settings"` reports `"disable_signup":true`.

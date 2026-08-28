@@ -5,6 +5,11 @@
 -- fresh clone gets the current shape in one pass. `phase7-amendments.sql` and
 -- `security-amendments.sql` are the migrations that brought an ALREADY provisioned
 -- database here; they are kept as the record of what ran, not as further things to run.
+--
+-- The `public.chat_messages` table at the bottom was added by the chat-persistence
+-- amendment and RAN on 2026-08-28 (`chat-amendment.sql` is that migration, kept as the
+-- record of what ran). So the sentence above — "as it exists" — is true of both tables,
+-- which is what rule 8 asks of this file.
 
 -- Notes table: one row per note, owned by exactly one auth user.
 create table public.notes (
@@ -91,3 +96,70 @@ begin new.updated_at = now(); return new; end $$;
 create trigger notes_set_updated_at
   before update on public.notes
   for each row execute function public.set_updated_at();
+
+-- ===========================================================================
+-- CHAT HISTORY — added by the chat-persistence amendment (SPEC Block B US8).
+--
+-- Ran on 2026-08-28. The migration for an already-provisioned database is
+-- `supabase/chat-amendment.sql`, which carries the verification queries and the full
+-- reasoning for every line below; this copy exists so a fresh clone gets one file to
+-- run. Keep the two in step.
+-- ===========================================================================
+
+-- Chat turns: one row per message, owned by exactly one auth user, grouped into
+-- conversations by `conversation_id`. There is deliberately NO `conversations` table — a
+-- conversation is a group of messages and nothing else, and the one thing a parent table
+-- would buy is an EMPTY conversation being able to exist, which is exactly the state that
+-- needs no storage.
+create table public.chat_messages (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  conversation_id uuid not null,
+
+  -- `seq` IS THE ORDERING, and it is why this table has a column public.notes does not
+  -- need. A question and its answer are inserted in ONE statement, and `now()` is
+  -- transaction-scoped — both rows would carry an identical `created_at` and their
+  -- relative order would be undefined. An identity column is assigned in row order
+  -- within a multi-row insert, which is the only thing here that gives a deterministic
+  -- transcript. `created_at` stays for display; it is never what an ORDER BY uses.
+  seq             bigint generated always as identity,
+
+  role            text not null check (role in ('user', 'assistant')),
+  content         text not null,
+  created_at      timestamptz not null default now(),
+
+  -- The two roles are bounded DIFFERENTLY, and that asymmetry is the point. A user
+  -- message is capped at LIMITS.chatMessageMax (2,000) — this is that cap's database
+  -- fence, and unlike LIMITS.tagMax it needs no trigger. A reply is bounded far more
+  -- loosely at LIMITS.chatReplyMax (100,000) because its length is the model's to decide,
+  -- and that number is a STORAGE-SANITY bound rather than a promise about the model: at
+  -- the default this project moved to it is reachable, and an over-long reply degrades to
+  -- "shown but not saved" by design. See chat-amendment.sql and lib/types.ts.
+  constraint chat_messages_content_bounds check (
+    char_length(content) > 0
+    and char_length(content) <= 100000
+    and (role <> 'user' or char_length(content) <= 2000)
+  )
+);
+
+alter table public.chat_messages enable row level security;
+
+-- Same reasoning as public.notes: without this, RLS is the ONLY thing between the
+-- publishable key and every row here.
+revoke all on table public.chat_messages from anon;
+
+-- SELECT and INSERT only. THE TWO MISSING POLICIES ARE THE FEATURE: with no `for update`
+-- and no `for delete` policy, RLS denies both, so this table is APPEND-ONLY at the
+-- database rather than by convention in the DAL. Nothing in the app edits or removes a
+-- turn, and the absence of a policy states that more strongly than a comment could.
+create policy "chat_messages_select_own" on public.chat_messages
+  for select to authenticated using ((select auth.uid()) = user_id);
+create policy "chat_messages_insert_own" on public.chat_messages
+  for insert to authenticated with check ((select auth.uid()) = user_id);
+
+-- The one access path this table has: `where user_id = $1 order by seq desc limit $2`,
+-- which is how lib/chatMessages.ts reads the newest conversation in a single query. No
+-- index on conversation_id: no query filters by it in the database (the grouping happens
+-- in the DAL over rows already fetched), and an index nothing reads is maintenance paid
+-- on every message for nothing.
+create index chat_messages_user_seq_idx on public.chat_messages (user_id, seq desc);
