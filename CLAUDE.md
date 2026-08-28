@@ -52,11 +52,24 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
    cookies cannot be written (any Server Component) spends the browser's token and
    logs the user out. Clients from `lib/supabase/server.ts` validate, never refresh;
    a browser client may refresh, since a browser can persist the rotated cookies.
-3b. **All notes data access goes through `lib/notes.ts`** (marked `server-only`).
-   No page, component or Server Action queries the `notes` table directly.
+3b. **All notes data access goes through `lib/notes.ts`** (marked `server-only`), and
+   **all chat-history access through `lib/chatMessages.ts`** — one door per table.
+   No page, component or Server Action queries either table directly.
    Server Actions never accept or trust a user id from the client — the DAL
    derives it from `getUser()`. Remember: every Server Action is a publicly
    callable endpoint; treat each one as such.
+3c. **`/chat` requires a signed-in user — its own three fences (SPEC US8).**
+   (1) `lib/chat.ts` (marked `server-only`) calls `getUser()` before it validates a
+   payload and before it calls a model — the authoritative gate, and here it is
+   protecting the SPEND rather than data: the page itself renders an empty
+   conversation and has nothing to leak, so what must not happen without a user is
+   the paid request. (2) `app/chat/layout.tsx` checks `getUser()` and redirects — a
+   SEPARATE file from the notes layout on purpose; a shared parent would protect
+   future routes silently, and rule 3 counts fences per route. (3) `proxy.ts`, via
+   `isProtectedPath` in `lib/routes.ts` — the same convenience redirect, never the
+   gate. Adding a path to that predicate protects nothing by itself.
+   No page, component or action calls `lib/openrouter/` directly: `lib/chat.ts` is
+   the one door, the way `lib/notes.ts` is the one door to the `notes` table.
 4. **A privileged Supabase key must never appear** in app code, in any
    `NEXT_PUBLIC_*` variable, or anywhere else in this repo. It has two names —
    `service_role` in the legacy dashboard panel, `sb_secret_…` in the current
@@ -85,7 +98,12 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
 7. **Every notes query filters by the signed-in user's id** (`.eq('user_id', user.id)`).
    RLS is enabled as the second fence, but the explicit filter is still mandatory.
 8. Schema changes go through `supabase/schema.sql` — keep the file in sync with
-   what actually ran in the SQL Editor.
+   what actually ran in the SQL Editor. A change to an already-provisioned database
+   also gets its own migration file beside it (`phase7-amendments.sql`,
+   `security-amendments.sql`, `chat-amendment.sql`), kept as the record of what ran.
+   Where a migration is written but has NOT yet run, say so in a marker at the top of
+   both files — `schema.sql` claims to describe a database that exists, and an un-run
+   table in it is exactly the divergence rule 18 forbids.
 
 ## Code rules
 9. **Editor inputs hold local state** and push changes via a ~300 ms debounced
@@ -176,3 +194,42 @@ Local only this sprint. Env vars come from `.env.local` (see `.env.example`).
 ## AI model calls
 - All model calls must happen server-side only. Never call the OpenRouter API from browser code.
 - OPENROUTER_API_KEY lives in .env.local and must never be exposed to the browser (no NEXT_PUBLIC_ prefix, no passing it to client components).
+- **Every model call goes through `lib/chat.ts`** (marked `server-only`), which calls
+  `getUser()` first and refuses without a verified user. `lib/openrouter/server.ts` is
+  the connection and has no opinion about who may use it; the gate is the other file.
+  No page, component or Server Action may call `chat()` directly — the same chokepoint
+  discipline as rule 3b, and here it is what keeps an anonymous POST from spending
+  money.
+- **A model call is METERED, so the rules that protect text do not transfer.** No
+  debounce (rule 9 exists to stop per-keystroke writes; a message is one explicit
+  submit) and no automatic retry (rule B8 retries a save three times because a note
+  must not lose text — a failed send has lost nothing, and each attempt costs credit).
+  A retry is a button the user presses. Do not add an auto-retry, a backoff ladder or
+  a background refresh to this path without the owner saying so.
+- **The transcript arrives from the client and is not trusted.** It is validated in
+  `lib/chat.ts`: both caps from `LIMITS`, and a `role` of `user` or `assistant` only.
+  A `role: "system"` turn must always be refused — accepting one would let a caller
+  replace the app's own instructions to the model. The system prompt is built
+  server-side, in that file, and never travels on the wire.
+- **Chat history IS persisted, in `public.chat_messages`, and `lib/chatMessages.ts` is
+  its only door** — the same rule 3b chokepoint `lib/notes.ts` is for `public.notes`.
+  Two tables, two DALs, and `scripts/check.mjs` is driven by a list of both, so adding a
+  third table means adding a line to `DALS` there. Forgetting to is a FAIL rather than a
+  silent gap: `.from(` anything, in any file that is not a listed DAL, is already a
+  finding.
+- **The table is APPEND-ONLY, enforced by two ABSENT policies** (SELECT and INSERT
+  exist; UPDATE and DELETE do not, so RLS denies them). Do not add an update or delete
+  path — not in the DAL, not in a policy — without an owner amendment. "New chat"
+  deletes nothing and must not start to.
+- **Storage must never become an input to the prompt.** The transcript the model sees is
+  the client's array, posted whole on every send; the database seeds `ChatPanel`'s state
+  once on mount and is not read again. Do not "improve" this by having the action load
+  the conversation from the table and build the prompt from it — that changes the
+  in-conversation memory behaviour the owner explicitly ring-fenced, and it would make
+  every send a read.
+- **Write both rows of an exchange together, after the reply, and nothing on a failed
+  send.** That ordering is what keeps Retry from storing a duplicate question. A write
+  that fails is reported as `persisted: false` on the SUCCESS arm, never as a failed
+  send: the reply has already been paid for.
+- **Rule 6 still binds absolutely.** Supabase is the persistence layer; no chat data in
+  web storage, ever.
