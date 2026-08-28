@@ -16,10 +16,10 @@
 | M9 | Notifications | NO | System sends nothing (password-reset flow is out of scope) |
 | M10 | Analytics | NO | Privacy + simplicity |
 | M11 | Cron | NO | No time-driven behavior |
-| M12 | Third-party integrations | NO | Supabase is the backend itself (covered by M1/M2); zero other runtime integrations |
+| M12 | Third-party integrations | **ONE** | Amended 2026-08-28 (owner override) — Supabase is the backend itself (covered by M1/M2); OpenRouter is now the one other runtime integration, server-side only and currently uncalled. See M15 |
 | M13 | Performance & scale | NO | Hard cap: 1,000 notes per user (rule B7) replaces the section |
 | M14 | Admin panel | NO | No operators |
-| M15 | AI/LLM | NO | None |
+| M15 | AI/LLM | **CONNECTION ONLY** | Amended 2026-08-28 (owner override) — a server-side OpenRouter connection exists in `lib/openrouter/`. No feature calls it; see the amendment under Block B |
 
 ---
 
@@ -164,6 +164,34 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 - [ ] SQL Editor shows rows with two distinct `user_id` values
 
 > Scope decision: IN — sign-in/out, protected workspace, notes CRUD with autosave, tags + tag filter, minimalist Notera-derived design. OUT — do NOT build: sign-up page, password reset, search, image uploads, sharing, realtime sync, dark mode, kanban boards, note-to-note links, export. The OUT list is a prohibition, not a backlog.
+>
+> **Amendment — 2026-08-28, owner override, OpenRouter connection.** M15 (AI/LLM) and M12
+> (third-party integrations) moved from NO to the values now in the module checklist. This
+> is **not** an OUT-list item: nothing on the list above moved, and rule 17 continues to
+> bind for every entry on it. M15 was a `NO` in the checklist, which is a statement about
+> what the app contains rather than a prohibition on ever containing it — the distinction
+> matters, because the OUT list is the one the agent may not touch without the owner saying
+> so, and this is the owner saying so.
+>
+> **What landed is a CONNECTION, not a feature**, and the difference is the whole scope of
+> the amendment. `lib/openrouter/env.ts` validates the key; `lib/openrouter/server.ts`
+> exports `DEFAULT_MODEL` and one `chat()` function over `fetch`. **Nothing in the app calls
+> it.** No route, no Server Action, no component, no copy in `lib/copy.ts` — so there is no
+> user-visible behaviour to write acceptance boxes for, and none are written. A later phase
+> that gives it a caller is a new amendment with its own user story, and that is the phase
+> that owes this file acceptance criteria.
+>
+> Three constraints the connection was built under, recorded because each one was a choice:
+> **(1) No new dependency.** OpenRouter's API is OpenAI-compatible plain HTTP. The official
+> `openrouter-typescript-sdk` skill recommends `@openrouter/agent`, which is genuinely better
+> for agent loops with tool calling; CLAUDE.md forbids new packages without approval, and one
+> non-streaming call does not need one. **(2) The key is a secret, so the fences are inverted**
+> from the Supabase ones — see Block F. **(3) `DEFAULT_MODEL` is `openai/gpt-4o-mini`**, chosen
+> for THREE healthy provider endpoints rather than for being cheapest: OpenRouter's value is
+> routing, so a default behind one provider is a default that goes down with it. Model ids are
+> not stable (`anthropic/claude-3.5-sonnet` was valid within this sprint and is now absent from
+> the list), so `npm run verify:openrouter` re-resolves the id and checks provider health on
+> every run, per the `openrouter-models` skill's own procedure.
 
 ---
 
@@ -428,7 +456,8 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
 
 ### Security
 - RLS on `public.notes` for all four verbs (Block C) + explicit `user_id` filter (B4).
-- Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` exist as env vars; the service-role key is never added to the project in any form.
+- Three env vars exist, and the third is the odd one out. `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are public by design and hold low-privilege values; the service-role key is never added to the project in any form. **`OPENROUTER_API_KEY`** (amended 2026-08-28, M15) is the first SECRET this project holds, and therefore the first env var that must never carry a `NEXT_PUBLIC_` prefix — it spends real credit, and Next inlines every `NEXT_PUBLIC_*` value textually into the browser bundle. Three fences, weakest to strongest: `lib/openrouter/env.ts` refuses at boot any `NEXT_PUBLIC_*` var named for the key or holding a value shaped like one; **both** modules in `lib/openrouter/` import `server-only`, so the **build fails** if a Client Component imports either (measured — the build errors with "'server-only' cannot be imported from a Client Component module"); and `npm run check` scans every code file the repo ships for both the public-prefixed name and a raw key literal.
+  > Decision (audit, 2026-08-28): the fence is on **`env.ts` as well as `server.ts`**, and it was added because an audit asked what stopped a Client Component importing `env.ts` directly. The answer was "nothing structural" — only two conventions (server.ts is the sole importer; the var has no `NEXT_PUBLIC_` prefix, so a client import reads `undefined` and throws). A crash is not a leak, but it is not a fence either. Cost, recorded: `server-only` is not an installed package (Next aliases the specifier), so `env.ts` can no longer be imported by a bare `node --experimental-strip-types` probe — re-probe its guards by importing a copy with the first line removed, and never delete the fence to make a test easier.
 - No hardcoded email addresses anywhere in the repo.
 - All user text renders through JSX text nodes; `dangerouslySetInnerHTML` prohibited.
 - Forged IDs: unknown or foreign note id → RLS returns no row → `notFound()`.
@@ -492,7 +521,7 @@ All `{n}` values are interpolated from `LIMITS` with `toLocaleString("en-US")` �
    **A trap worth knowing before you re-run this by hand:** on a working tree where `.claude/skills/*` are symlinks into `.agents/skills/*`, `grep -r` does NOT follow them and reports two hits instead of four. Use `grep -R`, or trust `npm run check`, which never walks either tree. This is exactly how the first version of this list came to be short by two.
 6. `grep -rn "getSession()" app/ lib/ proxy.ts` returns no access-decision usage (only the documented cookie-refresh helper if the current Supabase docs require it — annotate in `docs/` if so).
 7. Supabase SQL Editor: `select user_id, count(*) from notes group by user_id;` shows two distinct `user_id` values after verification (screenshot saved to `docs/screenshots/`).
-8. README documents: purpose, run steps, both env vars and where to find their values (Supabase dashboard → Settings → API), a screenshot of the local app, and the optional tasks with their branch/PR names.
+8. README documents: purpose, run steps, all **three** env vars (the third, `OPENROUTER_API_KEY`, added by the 2026-08-28 amendment — documented with the reason it carries no `NEXT_PUBLIC_` prefix, not merely listed) and where to find their values (Supabase dashboard → Settings → API), a screenshot of the local app, and the optional tasks with their branch/PR names.
 9. Public self-signup is **off** at the Auth API, not merely unused by the app:
    `curl -s -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" "$NEXT_PUBLIC_SUPABASE_URL/auth/v1/settings"` reports `"disable_signup":true`.
    Re-checkable on purpose: this is dashboard state, so it can regress without a single line of code changing. It was found **enabled** at the Phase 2 gate and switched off there; the probe is what turns "we switched it off once" into something anyone can re-run in five seconds. The app never calls `signUp`, which is why the endpoint — not the app — is what has to be checked. Verified `true` at the Phase 7 gate.

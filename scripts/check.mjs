@@ -103,6 +103,25 @@ const WIDE = [
 const WEB_STORAGE = new RegExp("local" + "Storage|" + "session" + "Storage", "i");
 const PRIVILEGED_KEY = new RegExp("service" + "_role", "i");
 
+// The OpenRouter key, in the two shapes that put it in a browser bundle. Fragments again,
+// and for the same reason the paragraph above gives: both needles would otherwise match
+// their own source line.
+//
+// This is the MIRROR of the check above, not a copy of it. PRIVILEGED_KEY hunts a value
+// that must never be public and whose variable IS public by design (NEXT_PUBLIC_SUPABASE_*
+// exists and is correct); this one hunts a value that must never be public and whose
+// variable is correctly named OPENROUTER_API_KEY with no prefix at all. So the finding here
+// is not the key's name on its own — it is the PUBLIC PREFIX attached to it.
+//
+// Two spellings, because they fail differently. A name a developer wrote on purpose
+// (`NEXT_PUBLIC_` + this key's name) is the honest mistake — someone hit the "why is this
+// undefined in the browser" wall and fixed it the way that makes the error go away. A raw
+// key LITERAL is the careless one: pasted into a component to test something, then
+// committed. Neither is caught by the checks above, and both ship a working, billable
+// credential to anyone who views source.
+const PUBLIC_OPENROUTER = new RegExp("NEXT" + "_PUBLIC_[A-Z0-9_]*OPEN" + "ROUTER", "i");
+const OPENROUTER_KEY_LITERAL = new RegExp("sk" + "-or-", "i");
+
 // Any quoting of the table name, and any whitespace. This matched `"notes"` only until
 // the /full-review: `.from('notes')` slipped straight past it, and nothing in this repo
 // pins quote style — there is no ESLint and no Prettier config.
@@ -170,6 +189,22 @@ check(
   "no service-role key",
   "rule 4 — this project needs only the anon key",
   () => hits([...WIDE, ...SQL], PRIVILEGED_KEY),
+);
+
+// ── The OpenRouter key stays on the server. Same WIDE scope as check 5 above, and for
+//    the same reason: build config and these scripts can read an env var and reach a
+//    model host just as easily as a page can. Both modules in lib/openrouter/ carry a
+//    `server-only` import, which is the stronger fence — it fails the BUILD if a Client
+//    Component imports either — but it only guards those two files. It says nothing about
+//    a key pasted into a component directly, or read from a NEXT_PUBLIC_ name somewhere
+//    else, which is what this reads text to find. ─────────────────────────────────────
+check(
+  "no OpenRouter key exposed to the browser",
+  'CLAUDE.md "AI model calls" — server-side only; every NEXT_PUBLIC_* value is inlined into the browser bundle',
+  () => [
+    ...hits([...WIDE, ...SQL], PUBLIC_OPENROUTER),
+    ...hits([...WIDE, ...SQL], OPENROUTER_KEY_LITERAL),
+  ],
 );
 
 // ── Block H check 6. Matches a CALL (`.getSession(`), not the many comments that

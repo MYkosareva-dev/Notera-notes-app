@@ -36,7 +36,8 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
 2. **Create a Supabase project** at [supabase.com](https://supabase.com) (the free tier
    is enough).
 
-3. **Create `.env.local`** from the template and fill in two values:
+3. **Create `.env.local`** from the template and fill in three values — the two Supabase
+   ones below, then `OPENROUTER_API_KEY` in step 3b:
 
    ```bash
    cp .env.example .env.local
@@ -47,8 +48,56 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
    | `NEXT_PUBLIC_SUPABASE_URL` | Project → **Settings → API** → "Project URL" |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Project → **Settings → API** → the **anon public** key |
 
-   The app needs nothing else. The **service-role key is never used** — not in
+   Supabase needs nothing else. The **service-role key is never used** — not in
    `.env.local`, not in any `NEXT_PUBLIC_*` variable, not anywhere in this repo.
+
+3b. **Add the OpenRouter key.** Create one at
+   [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) and put it in
+   `.env.local` as `OPENROUTER_API_KEY`.
+
+   | Variable | Where it comes from |
+   | --- | --- |
+   | `OPENROUTER_API_KEY` | [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys) → **Create key** |
+
+   **Note what this variable is missing, and do not add it.** It has no
+   `NEXT_PUBLIC_` prefix, and it is the only one of the three that must not. The two
+   above are public on purpose and hold low-privilege values; this one is a secret
+   that spends real credit. Because every `NEXT_PUBLIC_*` value is inlined textually
+   into the browser bundle, a key pasted under such a name is a working, billable
+   credential published to anyone who views source — and the app would boot and
+   answer correctly the whole time.
+
+   Three fences hold that, weakest to strongest:
+
+   - [`lib/openrouter/env.ts`](lib/openrouter/env.ts) **refuses at boot** any
+     `NEXT_PUBLIC_*` variable named for this key *or* holding a value shaped like one
+     — the second test matters, because a key pasted under a name that says nothing
+     is the case a name check alone misses.
+   - **Both** modules in [`lib/openrouter/`](lib/openrouter/) — `env.ts` and
+     `server.ts` — import `server-only`, so **`npm run build` fails** if a Client
+     Component ever imports either one. This is the strongest of the three because it
+     is not a text scan: it is the compiler refusing to produce a bundle. The fence is
+     on `env.ts` too, and deliberately: with it only on `server.ts`, a Client
+     Component could import `env.ts` directly and the build would have succeeded.
+   - `npm run check` scans every code file the repo ships for both spellings — the
+     public-prefixed name, and a raw key literal pasted into a component.
+
+   Then prove it works:
+
+   ```bash
+   npm run verify:openrouter
+   ```
+
+   Seven checks — three local, then four over the network: no `NEXT_PUBLIC_`
+   OpenRouter variable exists, the key is set, `DEFAULT_MODEL` is readable from
+   source, the key is valid, that model is still a routable id, its providers are up,
+   and a real completion comes back. It costs a fraction of a cent (one ~32-token
+   reply) and **never prints the key** — it reports the key's length and nothing more.
+
+   The connection is deliberately **unwired**: nothing in the app calls a model yet.
+   `lib/openrouter/server.ts` exports `DEFAULT_MODEL` and one `chat()` function, and
+   that is the whole of it. See the 2026-08-28 amendment in [`SPEC.md`](SPEC.md) (M15)
+   for why, and for what a future feature would owe.
 
 4. **Create the table.** Open **SQL Editor** in the dashboard, paste
    [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates `public.notes`,
