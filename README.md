@@ -79,8 +79,8 @@ calls `supabase.auth.getUser()` itself and refuses to run without a user.
    above are public on purpose and hold low-privilege values; this one is a secret
    that spends real credit. Because every `NEXT_PUBLIC_*` value is inlined textually
    into the browser bundle, a key pasted under such a name is a working, billable
-   credential published to anyone who views source — and the app would boot and
-   answer correctly the whole time.
+   credential published to anyone who views source — and, exactly as with the
+   Supabase case above, the app would boot and answer correctly the whole time.
 
    Three fences hold that, weakest to strongest:
 
