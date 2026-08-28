@@ -113,6 +113,20 @@ const PRIVILEGED_KEY = new RegExp("service" + "_role", "i");
 // variable is correctly named OPENROUTER_API_KEY with no prefix at all. So the finding here
 // is not the key's name on its own — it is the PUBLIC PREFIX attached to it.
 //
+// TODO (merge-time): when the security-audit work lands — commit eb5c5ff, "fix+lab: close
+// the security audit's three warnings, stage its DDL", currently unmerged on lab/agents
+// and playwright — widen the sentence above to mention that PRIVILEGED_KEY covers FOUR
+// spellings rather than the one it has on main. That commit also renames the check it
+// belongs to ("no service-role key" becomes "no privileged key, under any of its names")
+// and adds two SQL checks this branch does not have. Nothing here breaks either way: the
+// paragraph just describes a narrower needle than the one that will exist, and this branch
+// was authored against main.
+//
+// Do NOT enumerate the four spellings when widening it. Two of them would match
+// PRIVILEGED_KEY itself, and this file is inside the scope it scans — the paragraph above
+// the needle records that both a constant named after the key and the comment explaining
+// the trick have already matched. Say "the four spellings", never the strings.
+//
 // Two spellings, because they fail differently. A name a developer wrote on purpose
 // (`NEXT_PUBLIC_` + this key's name) is the honest mistake — someone hit the "why is this
 // undefined in the browser" wall and fixed it the way that makes the error go away. A raw
