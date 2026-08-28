@@ -312,8 +312,10 @@ Persona: **Mara**, a freelance illustrator who keeps client briefs and ideas as 
 > is a button the user presses and never automatic. Same reasoning, opposite conclusion,
 > and it is recorded in both `lib/chat.ts` and `ChatPanel`.
 >
-> **`DEFAULT_MODEL` is unchanged** (`openai/gpt-4o-mini`, chosen for three healthy
-> provider endpoints — see the connection amendment), and no new dependency was added:
+> **`DEFAULT_MODEL` is not chosen or changed by this amendment** — the chat page takes
+> whatever the connection records, and the id is deliberately not restated here so this
+> paragraph cannot go stale when the model moves (it since has: see M15 constraint (3)).
+> No new dependency was added:
 > the feature is the existing `chat()` over `fetch`, plus a gate, an action and a
 > component.
 
@@ -617,10 +619,23 @@ Five decisions in that table, each of which was a choice:
 > `tagMax` could not have. `char_length(content) <= 2000` applies only where
 > `role = 'user'` — expressible as a plain `check` because it needs no subquery and no
 > other row, unlike the two caps Block C's Phase 7 batch declined. A reply is bounded at
-> 100,000 instead, because its length is the model's to decide: `openai/gpt-4o-mini` can
-> emit ~65,000 characters, so a 2,000 cap would refuse a good answer AFTER the call had
-> been paid for. If the loose bound ever does fire, the app shows the reply and warns that
-> it was not saved (G-43) rather than losing it.
+> 100,000 instead, because its length is the model's to decide and a 2,000 cap would
+> refuse a good answer AFTER the call had been paid for.
+>
+> **That 100,000 is a STORAGE-SANITY bound and not a promise about the model, and the
+> distinction was learned the hard way.** It was first justified as sitting above anything
+> the default model could physically emit — arithmetic from `openai/gpt-4o-mini`'s 16,384
+> max output tokens (~65,000 characters). The lab's Part 4 moved the default to
+> `anthropic/claude-haiku-4.5` — recorded in the M15 amendment under constraint (3), which
+> is where the id and its provider figures live — and its max is 64,000 output tokens
+> (~256,000 characters),
+> and the justification died with the old id. **The cap is deliberately NOT raised.** An
+> over-long reply fails the check, and the app SHOWS the reply while reporting the exchange
+> unsaved (G-43) — the path a failed write already takes, and the one this design chose on
+> purpose. Raising the bound means another DDL run; setting `max_tokens` on the request
+> would truncate real answers to protect a storage limit. The lesson recorded for next
+> time: a constraint's justification must not be arithmetic from one model's limits, because
+> the model is the thing most likely to change.
 > Decision: **SELECT and INSERT policies only — the two MISSING policies are the
 > feature.** With no `for update` and no `for delete` policy, RLS denies both, so the table
 > is append-only at the DATABASE rather than by convention in the DAL. Nothing in the app

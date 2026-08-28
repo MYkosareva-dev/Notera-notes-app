@@ -131,9 +131,10 @@ create table public.chat_messages (
   -- The two roles are bounded DIFFERENTLY, and that asymmetry is the point. A user
   -- message is capped at LIMITS.chatMessageMax (2,000) — this is that cap's database
   -- fence, and unlike LIMITS.tagMax it needs no trigger. A reply is bounded far more
-  -- loosely at LIMITS.chatReplyMax (100,000), because its length is the model's to
-  -- decide: gpt-4o-mini can emit ~65,000 characters, so a 2,000 cap here would refuse a
-  -- good answer AFTER the call was paid for.
+  -- loosely at LIMITS.chatReplyMax (100,000) because its length is the model's to decide,
+  -- and that number is a STORAGE-SANITY bound rather than a promise about the model: at
+  -- the default this project moved to it is reachable, and an over-long reply degrades to
+  -- "shown but not saved" by design. See chat-amendment.sql and lib/types.ts.
   constraint chat_messages_content_bounds check (
     char_length(content) > 0
     and char_length(content) <= 100000

@@ -59,11 +59,19 @@ create table public.chat_messages (
   --
   -- An ASSISTANT message is bounded far more loosely, at `LIMITS.chatReplyMax`
   -- (100,000), and NOT at 2,000. The reply's length is the model's to decide, not the
-  -- app's: `openai/gpt-4o-mini` can emit up to 16,384 output tokens, which is on the
-  -- order of 65,000 characters, so a 2,000-cap here would reject a perfectly good answer
-  -- AFTER the call had been paid for. 100,000 sits above any reply that model can
-  -- physically produce while still refusing a runaway. If it ever does fire, the app does
-  -- not lose the reply: it shows it and warns that the conversation was not saved.
+  -- app's, so a 2,000-cap here would reject a perfectly good answer AFTER the call had
+  -- been paid for.
+  --
+  -- 100,000 IS A STORAGE-SANITY BOUND, NOT A PROMISE ABOUT THE MODEL. It was originally
+  -- justified as sitting above any reply the default model could physically produce —
+  -- arithmetic from `openai/gpt-4o-mini`'s 16,384 max output tokens (~65,000 characters)
+  -- — and that justification did not survive the first model change: at
+  -- `anthropic/claude-haiku-4.5` the max is 64,000 output tokens, roughly 256,000
+  -- characters. The bound is therefore reachable and is deliberately NOT raised: an
+  -- over-long reply fails this check, the app SHOWS the reply and reports the exchange
+  -- unsaved (`persisted: false`), and that is the path a failed write already takes.
+  -- Raising it means another migration; capping the model's output would truncate real
+  -- answers to protect a storage limit. See lib/types.ts for the full reasoning.
   --
   -- `role` is named in the predicate rather than the check being split in two, so the
   -- asymmetry is visible on one line to anyone reading the constraint.

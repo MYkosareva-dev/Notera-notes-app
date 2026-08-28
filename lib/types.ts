@@ -99,12 +99,27 @@ export const LIMITS = {
    * The upper bound on ONE STORED ASSISTANT REPLY, and it is deliberately nowhere near
    * `chatMessageMax`.
    *
-   * A reply's length is the model's to decide, not the app's. `openai/gpt-4o-mini` can
-   * emit up to 16,384 output tokens — on the order of 65,000 characters — so capping a
-   * reply at the user's 2,000 would refuse a perfectly good answer AFTER the call had
-   * been paid for. This sits above anything that model can physically produce while
-   * still refusing a runaway, and it is the `check` constraint on
-   * `public.chat_messages.content` for `role = 'assistant'`.
+   * A reply's length is the model's to decide, not the app's, so capping a reply at the
+   * user's 2,000 would refuse a perfectly good answer AFTER the call had been paid for.
+   * This is the `check` constraint on `public.chat_messages.content` for
+   * `role = 'assistant'`.
+   *
+   * **IT IS A STORAGE-SANITY BOUND, NOT A PROMISE ABOUT THE MODEL.** This number used to
+   * be justified as "above anything the default model can physically produce", which was
+   * arithmetic from `openai/gpt-4o-mini`'s 16,384 max output tokens (~65,000 characters).
+   * That justification did not survive its first model change: the connection's default
+   * moved to `anthropic/claude-haiku-4.5`, whose max is 64,000 output tokens — roughly
+   * 256,000 characters, about 2.5x this bound. (That change lives on the OpenRouter
+   * branch; whichever id `DEFAULT_MODEL` holds, this comment must not depend on it —
+   * pinning the reasoning to one model's limits is exactly what made it stale.)
+   *
+   * SO THE BOUND IS REACHABLE, and it is deliberately NOT raised. A reply over it fails
+   * the insert, which is reported as `persisted: false` — the reply is SHOWN and the user
+   * is told the exchange was not saved (SPEC G-43). That path already exists for any
+   * failed write and was built for exactly this; a bigger number would need another DDL
+   * run, and a `max_tokens` on the request would truncate real replies to protect a
+   * storage limit. What the cap still does is refuse a runaway, which is all it was ever
+   * for.
    */
   chatReplyMax: 100_000,
 
