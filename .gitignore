@@ -19,3 +19,9 @@
 
 # OS / editor junk
 .DS_Store
+
+# end-to-end tests (Playwright). Root-anchored, rule 12.
+# /e2e/.auth/ holds a LIVE Supabase session captured by `npm run e2e:auth` — never commit it.
+/e2e/.auth/
+/test-results/
+/playwright-report/

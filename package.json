@@ -11,6 +11,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "check": "node scripts/check.mjs",
+    "e2e": "playwright test --project=app",
+    "e2e:auth": "playwright test --project=capture",
     "verify:openrouter": "node scripts/verify-openrouter.mjs"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.8",
